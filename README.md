@@ -76,7 +76,7 @@ The full list, with what changed for your code, is in the [changelog](CHANGELOG.
     | MongoDB | `mongodb` | `npm i github:Demonic1594/ReForgeDB mongodb` |
 
     > ℹ️ **Note**\
-    > The compiled code is committed, so no build step is needed. The command follows `main`; to pin a release, add its tag, e.g. `npm i github:Demonic1594/ReForgeDB#v3.0.0`.
+    > The compiled code is committed, so no build step is needed. The command follows `main`; to pin a release, add its tag, e.g. `npm i github:Demonic1594/ReForgeDB#v3.2.0`.
 
 2. Add it to your client:
     ```js
@@ -351,8 +351,17 @@ Coming from ForgeDB 1.x (quick.db)? Move to ForgeDB 2 first with [its guide](htt
 
 <h3 align="center">Other Extensions</h3><hr>
 
+The ReForge extensions work with ReForgeDB, and with the original ForgeDB too. They use whichever one your bot loaded (ReForgeDB if both are loaded), and it can be listed anywhere in `extensions`. With ForgeDB alone they log a one-time reminder to switch.
+
+| Extension | With ReForgeDB | Stored in |
+|---|---|---|
+| [ReForgeGiveaways](https://github.com/Demonic1594/ReForgeGiveaways) | 2.3.0 and newer | its own `giveaways.db`, with ReForgeDB's connection settings |
+| [ReForgeTopGG](https://github.com/Demonic1594/ReForgeTopGG) | 3.1.0 and newer, with `store: "reforgedb"` | the user variable `topggVote` |
+
+Load only one of ReForgeDB and ForgeDB: they add the same functions. Which ReForge versions work together, and the checklist they follow, is in [ECOSYSTEM.md](ECOSYSTEM.md).
+
 > ⚠️ **Warning**\
-> Extensions written for ForgeDB look for an extension named `forge.db` and import `@tryforge/forge.db`, so they do not load with ReForgeDB: the original ForgeGiveaways, and ReForgeGiveaways up to 2.2.1. **ReForgeGiveaways 3.0.0 and ReForgeTopGG 3.1.0 work with ReForgeDB or ForgeDB**, and remind ForgeDB users once to switch. Which ReForge versions work together is in [ECOSYSTEM.md](ECOSYSTEM.md).
+> Extensions written only for ForgeDB look for an extension named `forge.db` and import `@tryforge/forge.db`, so they do not load with ReForgeDB. That includes the original ForgeGiveaways, ReForgeGiveaways up to 2.2.1, and the `"forgedb"` store of ReForgeTopGG up to 3.0.0. Update those, or stay on ForgeDB.
 
 An extension stores its own tables through ReForgeDB's connection settings by extending `DataBaseManager`, exactly as with ForgeDB:
 
@@ -366,7 +375,7 @@ class TicketsDatabase extends DataBaseManager {
 }
 ```
 
-and declares the dependency with `requireExtensions = ["reforge.db"]`. `getDB()` waits for ReForgeDB's configuration, shares one connection per `database` name, and can be called again after a failure to retry. Optional hooks: `previousDatabase = "old.db"` with `previousDatabaseAction` (`use`, `copy`, `rename` or `ignore`) handles an SQLite file of an earlier name (ReForgeDB uses them for `forge.db`), and `beforeSynchronize(dataSource)` runs before TypeORM updates the schema.
+and declares the dependency with `requireExtensions = ["reforge.db"]`. To support ReForgeDB and ForgeDB both, as the ReForge extensions do, check for either name in `client.options.extensions` instead, and take the class to extend from the loaded extension: `Object.getPrototypeOf(client.db)` is its `DataBaseManager`. Read it once the client has loaded every extension (for example after `await new Promise((r) => setImmediate(r))` in `init`). `getDB()` waits for ReForgeDB's configuration, shares one connection per `database` name, and can be called again after a failure to retry. Optional hooks: `previousDatabase = "old.db"` with `previousDatabaseAction` (`use`, `copy`, `rename` or `ignore`) handles an SQLite file of an earlier name (ReForgeDB uses them for `forge.db`), and `beforeSynchronize(dataSource)` runs before TypeORM updates the schema.
 
 `client.db` is the `DataBase` class (`get`, `set`, `delete`, `getAll`, `find`, `search`, `leaderboard`, `cdAdd`, `cdTimeLeft`, ...), so code that reads through it, such as QuorielDB's `transferDatabase(client)`, works unchanged.
 
