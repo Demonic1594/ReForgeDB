@@ -1,12 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const forgescript_1 = require("@tryforge/forgescript");
-const util_1 = require("../../util");
-const __1 = require("../..");
+const functions_1 = require("../../util/functions");
 exports.default = new forgescript_1.NativeFunction({
     name: "$getGlobalVar",
     version: "2.0.0",
-    description: "Retrieves the value of a variable associated with a global",
+    description: "Retrieves the value of a global variable",
     output: forgescript_1.ArgType.Unknown,
     unwrap: true,
     args: [
@@ -19,7 +18,7 @@ exports.default = new forgescript_1.NativeFunction({
         },
         {
             name: "default",
-            description: "The default value to return if the identifier doesn't exist in the variable",
+            description: "The value to return when the variable was never set",
             rest: false,
             required: false,
             type: forgescript_1.ArgType.String,
@@ -27,28 +26,7 @@ exports.default = new forgescript_1.NativeFunction({
     ],
     brackets: true,
     async execute(ctx, [name, def]) {
-        const data = await util_1.DataBase.get({ name, type: "custom" }).then((x) => x?.value);
-        if (data === null || data === undefined) {
-            if (def)
-                return this.successJSON(def);
-            else if (__1.ForgeDB.defaults && name in __1.ForgeDB.defaults) {
-                const defData = __1.ForgeDB.defaults[name];
-                if (typeof defData === "object" && defData !== null && "functions" in defData) {
-                    const d = defData;
-                    // Run
-                    const result = await forgescript_1.Interpreter.run(ctx.clone({
-                        data: d,
-                        allowTopLevelReturn: true,
-                        doNotSend: true,
-                        redirectErrorsToConsole: true,
-                    }));
-                    return result === null ? this.stop() : this.successJSON(result);
-                }
-                else
-                    return this.successJSON(defData);
-            }
-        }
-        return this.successJSON(data);
+        return (0, functions_1.guarded)(this, () => (0, functions_1.readVariable)(this, ctx, { name, type: "custom" }, def));
     },
 });
 //# sourceMappingURL=getGlobalVar.js.map

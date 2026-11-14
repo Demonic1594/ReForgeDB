@@ -2,10 +2,11 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const forgescript_1 = require("@tryforge/forgescript");
 const util_1 = require("../../util");
+const functions_1 = require("../../util/functions");
 exports.default = new forgescript_1.NativeFunction({
     name: "$getUserLeaderboardLength",
     version: "2.0.0",
-    description: "Returns the length of a user leaderboard",
+    description: "Returns the number of pages of a user leaderboard (users with a number value)",
     output: forgescript_1.ArgType.Number,
     unwrap: true,
     args: [
@@ -18,7 +19,7 @@ exports.default = new forgescript_1.NativeFunction({
         },
         {
             name: "length",
-            description: "The length of users per page",
+            description: "The number of users per page, defaults to 1 (the number of users)",
             rest: false,
             type: forgescript_1.ArgType.Number,
             required: false,
@@ -33,10 +34,10 @@ exports.default = new forgescript_1.NativeFunction({
     ],
     brackets: true,
     async execute(_ctx, [name, length, decimals]) {
-        const data = await util_1.DataBase.find({ name, type: "user" });
-        data.sort((a, b) => parseInt(a.value) - parseInt(b.value));
-        const number = data.length / (length ?? 1);
-        return this.success(decimals ? number : number % 1 ? Math.floor(number) + 1 : number);
+        return (0, functions_1.guarded)(this, async () => {
+            const board = await util_1.DataBase.leaderboard({ type: "user", name });
+            return this.success((0, functions_1.pagesOf)(board.count, length, decimals));
+        });
     },
 });
 //# sourceMappingURL=getUserLeaderboardLength.js.map

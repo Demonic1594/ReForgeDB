@@ -1,6 +1,6 @@
 import { BaseCommandManager } from "@tryforge/forgescript"
-import { IDBEvents } from "./eventManager"
+import { EVENT_HANDLER_NAME, IDBEvents } from "./eventManager"
 
 export class DBCommandManager extends BaseCommandManager<keyof IDBEvents> {
-    handlerName = "ForgeDBEvents"
+    handlerName = EVENT_HANDLER_NAME
 }

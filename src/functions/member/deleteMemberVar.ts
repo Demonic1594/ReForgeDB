@@ -1,5 +1,6 @@
 import { ArgType, NativeFunction } from "@tryforge/forgescript"
 import { DataBase } from "../../util"
+import { guarded, requireId } from "../../util/functions"
 
 export default new NativeFunction({
     name: "$deleteMemberVar",
@@ -17,21 +18,24 @@ export default new NativeFunction({
         },
         {
             name: "member ID",
-            description: "The identifier of the value",
+            description: "The member ID, defaults to the member of the command",
             rest: false,
             type: ArgType.String,
             required: false,
         },
         {
             name: "guild ID",
-            description: "The guild to which the member belongs",
+            description: "The guild to which the member belongs, defaults to the guild of the command (also works for a guild the bot left)",
             rest: false,
             type: ArgType.String,
             required: false,
         },
     ],
     async execute(ctx, [name, member, guild]) {
-        await DataBase.delete({ name, id: member ?? ctx.member!.id, type: "member", guildId: guild ?? ctx.guild!.id })
-        return this.success()
+        return guarded(this, async () => {
+            const id = requireId(member, ctx.member?.id ?? (ctx.guild ? ctx.user?.id : undefined), "member ID")
+            await DataBase.delete({ name, id, type: "member", guildId: requireId(guild, ctx.guild?.id, "guild ID") })
+            return this.success()
+        })
     },
 })

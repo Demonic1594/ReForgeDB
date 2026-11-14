@@ -2,11 +2,13 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const forgescript_1 = require("@tryforge/forgescript");
 const util_1 = require("../../util");
+const functions_1 = require("../../util/functions");
 exports.default = new forgescript_1.NativeFunction({
     name: "$setVar",
     version: "1.0.0",
-    description: "Sets an identifier's value in a variable",
+    description: "Sets an identifier's value in a variable (legacy: prefer the typed functions such as $setUserVar)",
     unwrap: true,
+    brackets: true,
     args: [
         {
             name: "name",
@@ -26,19 +28,15 @@ exports.default = new forgescript_1.NativeFunction({
             name: "value",
             description: "The value",
             rest: false,
-            required: true,
             type: forgescript_1.ArgType.String,
+            required: true,
         },
     ],
-    brackets: true,
     async execute(_ctx, [name, id, value]) {
-        await util_1.DataBase.set({
-            value,
-            name,
-            type: "old",
-            id,
+        return (0, functions_1.guarded)(this, async () => {
+            await util_1.DataBase.set({ name, id, value, type: "old" });
+            return this.success();
         });
-        return this.success();
     },
 });
 //# sourceMappingURL=setVar.js.map

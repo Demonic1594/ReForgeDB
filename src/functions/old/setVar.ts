@@ -1,11 +1,13 @@
 import { ArgType, NativeFunction } from "@tryforge/forgescript"
 import { DataBase } from "../../util"
+import { guarded } from "../../util/functions"
 
 export default new NativeFunction({
     name: "$setVar",
     version: "1.0.0",
-    description: "Sets an identifier's value in a variable",
+    description: "Sets an identifier's value in a variable (legacy: prefer the typed functions such as $setUserVar)",
     unwrap: true,
+    brackets: true,
     args: [
         {
             name: "name",
@@ -25,19 +27,14 @@ export default new NativeFunction({
             name: "value",
             description: "The value",
             rest: false,
-            required: true,
             type: ArgType.String,
+            required: true,
         },
     ],
-    brackets: true,
     async execute(_ctx, [name, id, value]) {
-        await DataBase.set({
-            value,
-            name,
-            type: "old",
-            id,
+        return guarded(this, async () => {
+            await DataBase.set({ name, id, value, type: "old" })
+            return this.success()
         })
-
-        return this.success()
     },
 })

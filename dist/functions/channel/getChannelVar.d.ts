@@ -9,7 +9,7 @@ declare const _default: NativeFunction<[{
     name: string;
     description: string;
     rest: false;
-    type: ArgType.Channel;
+    type: ArgType.String;
     required: false;
 }, {
     name: string;

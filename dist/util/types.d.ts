@@ -1,4 +1,5 @@
-import { IDBEvents } from "../structures";
+import type { IDBEvents } from "../structures";
+import type { LogLevel } from "./logger";
 export declare enum SortType {
     asc = 0,
     desc = 1
@@ -18,30 +19,104 @@ export declare enum VariableType {
     message = 3,
     member = 4,
     custom = 5,
-    guild = 6
+    guild = 6,
+    old = 7
 }
-export type IDataBaseOptions = ({
-    type: "mysql" | "postgres";
+/** The database types ReForgeDB can use. `mariadb` uses the MySQL entities. */
+export type DriverType = "mysql" | "mariadb" | "postgres" | "mongodb" | "better-sqlite3" | "sqlite";
+/** The four entity families (SQLite and better-sqlite3 share one, MySQL and MariaDB share one). */
+export type DriverKind = "sqlite" | "mysql" | "postgres" | "mongodb";
+export declare function driverKind(type: string | undefined): DriverKind;
+export interface IReadCacheOptions {
+    /** Most records kept in memory. Defaults to `10000`. */
+    max?: number;
+    /** How long (ms) a cached record is trusted. `0` keeps it until it is changed or evicted. Defaults to `0`. */
+    ttl?: number;
+}
+/** Options shared by every database type. */
+export interface IReForgeDBCommonOptions {
+    /** The database events to listen to. */
+    events?: Array<keyof IDBEvents>;
+    /** Console output level. Defaults to `info`, or the `REFORGEDB_LOG_LEVEL` environment variable. */
+    logLevel?: LogLevel;
+    /** Operations slower than this many ms are logged as a warning. `0` disables it. Defaults to `1000`. */
+    slowQueryThreshold?: number;
+    /**
+     * Keep recently read and written variables in memory, so reading them
+     * again costs no query. Off by default.
+     *
+     * Only turn it on when **one** bot process uses the database: writes made
+     * by another process (another shard process, a dashboard, a script) are
+     * not seen until the cached copy expires (`ttl`) or is evicted.
+     */
+    cache?: boolean | IReadCacheOptions;
+    /**
+     * Leaderboards are built once and reused for this many ms, so a command
+     * that shows a page, a position and a page count scans the variable once.
+     * Writes made by this process refresh it right away. `0` disables it.
+     * Defaults to `2000`.
+     */
+    leaderboardCacheTTL?: number;
+    /** How often (ms) expired cooldowns are deleted from the database. `0` disables it. Defaults to 1 hour. */
+    cooldownSweepInterval?: number;
+    /**
+     * How long (ms) a function waits for the database to connect before it
+     * fails with an error. Defaults to `30000`.
+     */
+    readyTimeout?: number;
+    /**
+     * Let TypeORM create and update the tables. Defaults to `true`. With
+     * `false` you create the tables yourself (see the README).
+     */
+    synchronize?: boolean;
+    /**
+     * Extra TypeORM `DataSource` options, merged over the ones ReForgeDB
+     * builds (for example `{ ssl: { rejectUnauthorized: false } }` or
+     * `{ extra: { max: 20 } }`).
+     */
+    typeorm?: Record<string, unknown>;
+}
+export type IReForgeDBOptions = ({
+    type: "mysql" | "mariadb" | "postgres";
     url?: string;
     host?: string;
     port?: number;
     username?: string;
     password?: string;
     database?: string;
+    /** MySQL/MariaDB connection charset. Defaults to `utf8mb4_general_ci` so emojis can be stored. */
+    charset?: string;
 } | {
     type: "mongodb";
     url: string;
+    database?: string;
 } | {
     type: "better-sqlite3" | "sqlite";
+    /** Folder of the database file (`<folder>/forge.db`). Defaults to `database`. */
     folder?: string;
-}) & {
-    events?: Array<keyof IDBEvents>;
-};
+    /** Use SQLite's write-ahead log: much faster writes, readers never block. Defaults to `true`. */
+    wal?: boolean;
+}) & IReForgeDBCommonOptions;
+/** @deprecated Use `IReForgeDBOptions`. Kept so code typed against ForgeDB still compiles. */
+export type IDataBaseOptions = IReForgeDBOptions;
+export type RecordType = "user" | "channel" | "role" | "message" | "member" | "custom" | "guild" | "old";
 export declare class MySQLRecord {
     identifier: string;
     name: string;
     id: string;
-    type: "user" | "channel" | "role" | "message" | "member" | "custom" | "guild" | "old";
+    type: RecordType;
+    value: string;
+    guildId?: string;
+}
+/**
+ * The same table without the leaderboard index, used only when a MySQL server
+ * refuses the index (MySQL 5.6 and old MariaDB limit index keys to 767 bytes).
+ */
+export declare class MySQLRecordWithoutIndex {
+    identifier: string;
+    name: string;
+    id: string;
+    type: RecordType;
     value: string;
     guildId?: string;
 }
@@ -49,7 +124,7 @@ export declare class PostgreSQLRecord {
     identifier: string;
     name: string;
     id: string;
-    type: "user" | "channel" | "role" | "message" | "member" | "custom" | "guild" | "old";
+    type: RecordType;
     value: string;
     guildId?: string;
 }
@@ -57,7 +132,7 @@ export declare class SQLiteRecord {
     identifier: string;
     name: string;
     id: string;
-    type: "user" | "channel" | "role" | "message" | "member" | "custom" | "guild" | "old";
+    type: RecordType;
     value: string;
     guildId?: string;
 }
@@ -69,13 +144,35 @@ export type BaseData = {
 };
 export type GuildData = BaseData & {
     type?: "member" | "channel" | "role";
-    guildId: string;
+    guildId: string | undefined;
 };
 export type NonGuildData = BaseData & {
     type?: "user" | "message" | "custom" | "guild" | "old";
 };
 export type RecordData = BaseData & (GuildData | NonGuildData);
+/** A stored variable, as returned by `DataBase.get`, `find` and the events. */
+export type StoredRecord = {
+    identifier: string;
+    name: string;
+    id: string;
+    type: RecordType;
+    value: string;
+    guildId?: string | null;
+};
+/** SQLite cooldowns. SQLite integers are 64-bit, so these columns hold millisecond timestamps. */
 export declare class Cooldown {
+    identifier: string;
+    name: string;
+    id?: string;
+    startedAt: number;
+    duration: number;
+}
+/**
+ * MySQL and PostgreSQL cooldowns. ForgeDB used 32-bit `integer` columns here,
+ * which cannot hold a millisecond timestamp: every cooldown write failed on
+ * these databases. `bigint` holds any timestamp and any duration.
+ */
+export declare class SQLCooldown {
     identifier: string;
     name: string;
     id?: string;

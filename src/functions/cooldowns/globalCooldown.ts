@@ -1,16 +1,17 @@
-import { ArgType, IExtendedCompiledFunctionField, NativeFunction } from "@tryforge/forgescript"
-import { DataBase } from "../../util"
+import { ArgType, NativeFunction } from "@tryforge/forgescript"
+import { cooldownGate, guarded, resolveArgs } from "../../util/functions"
 
 export default new NativeFunction({
     name: "$globalCooldown",
+    aliases: ["$dbGlobalCooldown"],
     version: "2.0.0",
-    description: "Adds a cooldown to a command for a global",
+    description: "Starts a global cooldown stored in the database, or, while it is running, sends the code and stops the command ($env[time] holds the ms left)",
     brackets: true,
     unwrap: false,
     args: [
         {
             name: "name",
-            description: "The name of the command you are trying to add a cooldown",
+            description: "The name of the cooldown, e.g. the command name",
             rest: false,
             type: ArgType.String,
             required: true,
@@ -24,32 +25,18 @@ export default new NativeFunction({
         },
         {
             name: "code",
-            description: "The code to execute if the cooldown is active",
+            description: "The code to send while the cooldown is running; $env[time] holds the ms left",
             rest: false,
             type: ArgType.String,
+            required: false,
         },
     ],
     async execute(ctx) {
-        const [, , code] = this.data.fields! as IExtendedCompiledFunctionField[]
-        const dur = await this["resolveUnhandledArg"](ctx, 1)
-        if (!this["isValidReturnType"](dur)) return dur
-
-        const nameV = await this["resolveUnhandledArg"](ctx, 0)
-        if (!this["isValidReturnType"](nameV)) return nameV
-
-        const cooldown = await DataBase.cdTimeLeft(DataBase.make_cdIdentifier({ name: nameV.value }))
-
-        if (cooldown.left !== 0) {
-            ctx.setEnvironmentKey("time", cooldown.left)
-            const content = await this["resolveCode"](ctx, code)
-            if (!this["isValidReturnType"](content)) return content
-            ctx.container.content = content.value as string
-            await ctx.container.send(ctx.obj)
-            return this.stop()
-        }
-
-        await DataBase.cdAdd({ name: nameV.value as string, duration: dur.value as number })
-
-        return this.success()
+        return guarded(this, async () => {
+            const args = await resolveArgs(this, ctx, [0, 1])
+            if ("fail" in args) return args.fail
+            const [name, duration] = args.values as [string, number]
+            return cooldownGate(this, ctx, { name, duration }, 2)
+        })
     },
 })

@@ -1,11 +1,11 @@
 import { ArgType, NativeFunction } from "@tryforge/forgescript"
-import { BaseGuildTextChannel } from "discord.js"
 import { DataBase, SortType } from "../../util"
+import { channelScope, guarded } from "../../util/functions"
 
 export default new NativeFunction({
     name: "$getChannelLeaderboardValue",
     version: "2.0.0",
-    description: "Fetches the position of a channel in the leaderboard of a variable",
+    description: "Fetches the position of a channel in the leaderboard of a variable, or 0 when the channel is not on it",
     aliases: ["$getChannelLeaderboardPosition"],
     output: ArgType.Number,
     unwrap: true,
@@ -19,23 +19,25 @@ export default new NativeFunction({
         },
         {
             name: "sort type",
-            description: "The sort order for the leaderboard, either ascending (asc) or descending (desc)",
+            description: "The sort order for the leaderboard, either ascending (asc) or descending (desc, the default)",
             rest: false,
             type: ArgType.Enum,
             enum: SortType,
         },
         {
             name: "channel ID",
-            description: "The channel ID of the value",
+            description: "The channel ID, defaults to the channel of the command",
             rest: false,
-            type: ArgType.Channel,
+            type: ArgType.String,
             required: false,
         },
     ],
     brackets: true,
     async execute(ctx, [name, sortType, channel]) {
-        const data = await DataBase.find({ name, type: "channel", guildId: (channel as BaseGuildTextChannel)?.guild.id ?? ctx.guild?.id })
-        const index = data.sort((x, y) => (sortType === SortType.asc ? Number(x.value) - Number(y.value) : Number(y.value) - Number(x.value))).findIndex((s) => s.id === (channel ?? ctx.channel?.id))
-        return this.success(index + 1)
+        return guarded(this, async () => {
+            const { id, guildId } = await channelScope(ctx, channel)
+            const board = await DataBase.leaderboard({ type: "channel", name, guildId, sort: sortType === SortType.asc ? "asc" : "desc" })
+            return this.success(board.positionOf(id))
+        })
     },
 })

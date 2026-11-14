@@ -1,5 +1,6 @@
 import { ArgType, NativeFunction } from "@tryforge/forgescript"
 import { DataBase } from "../../util"
+import { guarded, requireId } from "../../util/functions"
 
 export default new NativeFunction({
     name: "$deleteGuildVar",
@@ -18,14 +19,16 @@ export default new NativeFunction({
         },
         {
             name: "guild ID",
-            description: "The identifier of the value",
+            description: "The guild ID, defaults to the guild of the command",
             rest: false,
             type: ArgType.String,
             required: false,
         },
     ],
     async execute(ctx, [name, guild]) {
-        await DataBase.delete({ name, id: guild ?? ctx.guild!.id, type: "guild" })
-        return this.success()
+        return guarded(this, async () => {
+            await DataBase.delete({ name, id: requireId(guild, ctx.guild?.id, "guild ID"), type: "guild" })
+            return this.success()
+        })
     },
 })

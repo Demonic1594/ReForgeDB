@@ -1,51 +1,108 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DataBaseManager = exports.ForgeDB = void 0;
+exports.EVENT_HANDLER_NAME = exports.DBLogger = exports.ReForgeDBError = exports.Leaderboard = exports.DataBase = exports.DataBaseManager = exports.ReForgeDB = void 0;
 const forgescript_1 = require("@tryforge/forgescript");
+const tiny_typed_emitter_1 = require("tiny-typed-emitter");
 const util_1 = require("./util");
 const structures_1 = require("./structures");
-const tiny_typed_emitter_1 = require("tiny-typed-emitter");
-class ForgeDB extends forgescript_1.ForgeExtension {
+const pkg = require("../package.json");
+/**
+ * ReForgeDB: variables, leaderboards and cooldowns for ForgeScript, stored in
+ * SQLite, better-sqlite3, MySQL/MariaDB, PostgreSQL or MongoDB.
+ *
+ * @example
+ * const client = new ForgeClient({
+ *     extensions: [new ReForgeDB({ type: "better-sqlite3", events: ["variableUpdate"] })],
+ * })
+ */
+class ReForgeDB extends forgescript_1.ForgeExtension {
     options;
-    static defaults;
-    name = "forge.db";
-    description = "A fast and reliable database extension for ForgeScript.";
-    version = require("../package.json").version;
+    /** Name this extension registers under, for `requireExtensions` of other extensions. */
+    static extensionName = "reforge.db";
+    static rawDefaults = {};
+    static compiledDefaults = new Map();
+    name = ReForgeDB.extensionName;
+    description = pkg.description;
+    version = pkg.version;
     commands;
     emitter = new tiny_typed_emitter_1.TypedEmitter();
     constructor(options) {
         super();
         this.options = options;
+        // Fail at start-up with a clear message, not on the first command.
+        (0, util_1.resolveSettings)(options);
+        if (options?.logLevel)
+            util_1.DBLogger.level = options.logLevel;
     }
     init(client) {
         this.commands = new structures_1.DBCommandManager(client);
-        forgescript_1.EventManager.load('ForgeDBEvents', __dirname + '/events');
+        forgescript_1.EventManager.load(structures_1.EVENT_HANDLER_NAME, __dirname + "/events");
         this.load(__dirname + "/functions");
-        new util_1.DataBase(this.emitter, this.options).init();
+        // Kept from ForgeDB: other code (QuorielDB's transfer, extensions) uses client.db.
         client.db = util_1.DataBase;
         if (this.options?.events?.length)
-            client.events.load("ForgeDBEvents", this.options.events);
+            client.events.load(structures_1.EVENT_HANDLER_NAME, this.options.events);
+        // Connects in the background with retries; never rejects.
+        void new util_1.DataBase(this.emitter, this.options).init();
     }
+    /** Resolves once the database is connected (rejects after `timeout` ms). */
+    static ready(timeout) {
+        return util_1.DataBase.ready(timeout);
+    }
+    /**
+     * Declares default values, used when a variable is read but was never
+     * set (and the function call gives no default). Strings are ForgeScript
+     * code and run in the reading command's context, so `"$username"` works.
+     * Each call replaces the previous defaults.
+     */
     variables(rec) {
-        ForgeDB.variables(rec);
+        ReForgeDB.variables(rec);
     }
     static variables(rec) {
-        ForgeDB.defaults = ForgeDB.compileVariables(rec);
+        if (!rec || typeof rec !== "object")
+            throw new util_1.ReForgeDBError("ReForgeDB.variables() expects an object of name: default");
+        ReForgeDB.rawDefaults = { ...rec };
+        ReForgeDB.compiledDefaults.clear();
     }
-    static compileVariables(rec) {
-        const obj = {};
-        for (const [key, value] of Object.entries(rec)) {
-            if (typeof value === "string") {
-                obj[key] = forgescript_1.Compiler.compile(value);
+    /** The declared defaults, as given to `variables()`. */
+    static get defaults() {
+        return ReForgeDB.rawDefaults;
+    }
+    /** Whether a default was declared for `name`. */
+    static hasDefault(name) {
+        return Object.prototype.hasOwnProperty.call(ReForgeDB.rawDefaults, name);
+    }
+    /**
+     * The default for `name`: compiled ForgeScript for strings (compiled on
+     * first use, once every extension's functions are registered), or the
+     * value itself.
+     */
+    static defaultFor(name) {
+        if (!ReForgeDB.hasDefault(name))
+            return undefined;
+        const raw = ReForgeDB.rawDefaults[name];
+        if (typeof raw !== "string")
+            return { value: raw };
+        let code = ReForgeDB.compiledDefaults.get(name);
+        if (!code) {
+            try {
+                code = forgescript_1.Compiler.compile(raw);
             }
-            else {
-                obj[key] = value;
+            catch (err) {
+                throw new util_1.ReForgeDBError(`The default of variable "${name}" is not valid ForgeScript: ${(0, util_1.errorMessage)(err)}`, err);
             }
+            ReForgeDB.compiledDefaults.set(name, code);
         }
-        return obj;
+        return { code };
     }
 }
-exports.ForgeDB = ForgeDB;
+exports.ReForgeDB = ReForgeDB;
 var util_2 = require("./util");
 Object.defineProperty(exports, "DataBaseManager", { enumerable: true, get: function () { return util_2.DataBaseManager; } });
+Object.defineProperty(exports, "DataBase", { enumerable: true, get: function () { return util_2.DataBase; } });
+Object.defineProperty(exports, "Leaderboard", { enumerable: true, get: function () { return util_2.Leaderboard; } });
+Object.defineProperty(exports, "ReForgeDBError", { enumerable: true, get: function () { return util_2.ReForgeDBError; } });
+Object.defineProperty(exports, "DBLogger", { enumerable: true, get: function () { return util_2.DBLogger; } });
+var structures_2 = require("./structures");
+Object.defineProperty(exports, "EVENT_HANDLER_NAME", { enumerable: true, get: function () { return structures_2.EVENT_HANDLER_NAME; } });
 //# sourceMappingURL=index.js.map

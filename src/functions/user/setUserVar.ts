@@ -1,5 +1,6 @@
 import { ArgType, NativeFunction } from "@tryforge/forgescript"
 import { DataBase } from "../../util"
+import { guarded, requireId } from "../../util/functions"
 
 export default new NativeFunction({
     name: "$setUserVar",
@@ -23,7 +24,7 @@ export default new NativeFunction({
         },
         {
             name: "user ID",
-            description: "The user id of the variable",
+            description: "The user ID, defaults to the user of the command",
             rest: false,
             type: ArgType.String,
             required: false,
@@ -31,7 +32,9 @@ export default new NativeFunction({
     ],
     brackets: true,
     async execute(ctx, [name, value, user]) {
-        await DataBase.set({ name, id: user ?? ctx.user!.id, value, type: "user" })
-        return this.success()
+        return guarded(this, async () => {
+            await DataBase.set({ name, id: requireId(user, ctx.user?.id, "user ID"), value, type: "user" })
+            return this.success()
+        })
     },
 })

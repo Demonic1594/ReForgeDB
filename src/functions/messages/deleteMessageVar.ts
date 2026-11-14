@@ -1,5 +1,6 @@
 import { ArgType, NativeFunction } from "@tryforge/forgescript"
 import { DataBase } from "../../util"
+import { guarded, requireId } from "../../util/functions"
 
 export default new NativeFunction({
     name: "$deleteMessageVar",
@@ -17,14 +18,16 @@ export default new NativeFunction({
         },
         {
             name: "message ID",
-            description: "The ID of the message",
+            description: "The message ID, defaults to the message of the command",
             rest: false,
             type: ArgType.String,
             required: false,
         },
     ],
     async execute(ctx, [name, message]) {
-        await DataBase.delete({ name, id: message ?? ctx.message!.id, type: "message" })
-        return this.success()
+        return guarded(this, async () => {
+            await DataBase.delete({ name, id: requireId(message, ctx.message?.id, "message ID"), type: "message" })
+            return this.success()
+        })
     },
 })

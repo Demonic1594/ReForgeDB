@@ -1,32 +1,32 @@
 import { ArgType, NativeFunction } from "@tryforge/forgescript"
 import { DataBase, VariableType } from "../../util"
-import { Like } from "typeorm"
+import { guarded, pickId, pickText, variableTypeOf } from "../../util/functions"
 
 export default new NativeFunction({
     name: "$searchDB",
     aliases: ["$searchRecords", "$searchDataBase"],
     version: "2.0.0",
-    description: "Retrieves variables associated with your inputs.",
-    output: ArgType.Unknown,
+    description: "Returns the variables matching your inputs as JSON. Name and value accept % (any text) and _ (one character)",
+    output: ArgType.Json,
     unwrap: true,
     args: [
         {
             name: "name",
-            description: "The name of the variable from which you want to retrieve the value.",
+            description: "The variable name; % matches any text, _ one character.",
             rest: false,
             type: ArgType.String,
             required: false,
         },
         {
             name: "id",
-            description: "The unique identifier of the user, guild, channel, or any other type.",
+            description: "The ID of the user, guild, channel, or any other type.",
             rest: false,
             type: ArgType.String,
             required: false,
         },
         {
             name: "type",
-            description: "The type or category of the variable.",
+            description: "The type of the variable.",
             rest: false,
             type: ArgType.Enum,
             enum: VariableType,
@@ -34,29 +34,30 @@ export default new NativeFunction({
         },
         {
             name: "value",
-            description: "The value associated with the variable.",
+            description: "The value; % matches any text, _ one character.",
             rest: false,
             type: ArgType.String,
             required: false,
         },
         {
             name: "guild ID",
-            description: "The unique identifier of the guild to which the member, channel, or role belongs.",
+            description: "The guild to which the member, channel, or role belongs.",
             rest: false,
-            type: ArgType.Guild,
+            type: ArgType.String,
             required: false,
         },
     ],
     brackets: true,
     async execute(_ctx, [name, id, type, value, guild]) {
-        let search = {}
-
-        if (name) search = { ...search, name: Like(name) }
-        if (id) search = { ...search, id }
-        if (type) search = { ...search, type: VariableType[type]?.toString() }
-        if (value) search = { ...search, value: Like(value) }
-        if (guild) search = { ...search, guildId: guild.id }
-
-        return this.successJSON(await DataBase.find({ ...search }))
+        return guarded(this, async () => {
+            const rows = await DataBase.search({
+                name: pickText(name),
+                id: pickId(id),
+                type: variableTypeOf(type),
+                value: pickText(value),
+                guildId: pickId(guild),
+            })
+            return this.successJSON(rows)
+        })
     },
 })

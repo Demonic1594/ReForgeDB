@@ -1,15 +1,16 @@
 import { ArgType, NativeFunction } from "@tryforge/forgescript"
-import { DataType, RecordData } from "../../util"
+import { DataType } from "../../util"
+import { eventRecord } from "../../util/functions"
 
 export default new NativeFunction({
     name: "$newData",
     version: "2.0.0",
-    description: "Retrieves the new data that has been updated for a record during an update event",
+    description: "Retrieves the new data of the variable in a variableUpdate event (the created data in variableCreate). Returns nothing outside these events",
     unwrap: true,
     args: [
         {
             name: "type",
-            description: "The type of data you want to retrieve",
+            description: "The property to retrieve",
             rest: false,
             type: ArgType.Enum,
             enum: DataType,
@@ -17,8 +18,9 @@ export default new NativeFunction({
         },
     ],
     brackets: true,
-    async execute(ctx, [type]) {
-        //@ts-ignore
-        return this.success((ctx.runtime.extras as { newData: RecordData }).newData[DataType[type].toString()])
+    execute(ctx, [type]) {
+        const record = eventRecord(ctx, "newData")
+        const value = record?.[DataType[type] as keyof typeof record]
+        return this.success(value === undefined ? null : value)
     },
 })

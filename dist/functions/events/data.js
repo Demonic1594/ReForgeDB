@@ -2,15 +2,16 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const forgescript_1 = require("@tryforge/forgescript");
 const util_1 = require("../../util");
+const functions_1 = require("../../util/functions");
 exports.default = new forgescript_1.NativeFunction({
     name: "$data",
     version: "2.0.0",
-    description: "Retrieves data that has been set or deleted for a record during create and delete events",
+    description: "Retrieves data of the variable created or deleted in a variableCreate or variableDelete event (the new data in variableUpdate). Returns nothing outside these events",
     unwrap: true,
     args: [
         {
             name: "type",
-            description: "The type of data you want to retrieve",
+            description: "The property to retrieve",
             rest: false,
             type: forgescript_1.ArgType.Enum,
             enum: util_1.DataType,
@@ -18,9 +19,10 @@ exports.default = new forgescript_1.NativeFunction({
         },
     ],
     brackets: true,
-    async execute(ctx, [type]) {
-        //@ts-ignore
-        return this.success(ctx.runtime.extras.data[util_1.DataType[type].toString()]);
+    execute(ctx, [type]) {
+        const record = (0, functions_1.eventRecord)(ctx, "data");
+        const value = record?.[util_1.DataType[type]];
+        return this.success(value === undefined ? null : value);
     },
 });
 //# sourceMappingURL=data.js.map

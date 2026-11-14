@@ -1,10 +1,11 @@
 import { ArgType, NativeFunction } from "@tryforge/forgescript"
 import { DataBase } from "../../util"
+import { guarded } from "../../util/functions"
 
 export default new NativeFunction({
     name: "$deleteVar",
     version: "1.0.0",
-    description: "Deletes a value from a variable",
+    description: "Deletes a value from a variable (legacy: prefer the typed functions such as $deleteUserVar)",
     unwrap: true,
     brackets: true,
     args: [
@@ -17,18 +18,16 @@ export default new NativeFunction({
         },
         {
             name: "id",
-            description: "The identifier of the value (a user, guild, channel, message, etc)",
+            description: "The identifier of the value",
             rest: false,
             type: ArgType.String,
             required: true,
         },
     ],
     async execute(_ctx, [name, id]) {
-        await DataBase.delete({
-            type: "old",
-            id,
-            name,
+        return guarded(this, async () => {
+            await DataBase.delete({ name, id, type: "old" })
+            return this.success()
         })
-        return this.success()
     },
 })

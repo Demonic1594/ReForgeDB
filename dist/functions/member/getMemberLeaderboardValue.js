@@ -2,10 +2,11 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const forgescript_1 = require("@tryforge/forgescript");
 const util_1 = require("../../util");
+const functions_1 = require("../../util/functions");
 exports.default = new forgescript_1.NativeFunction({
     name: "$getMemberLeaderboardValue",
     version: "2.0.0",
-    description: "Retrieves the position of a member in the leaderboard of a variable",
+    description: "Retrieves the position of a member in the leaderboard of a variable, or 0 when the member is not on it",
     aliases: ["$getMemberLeaderboardPosition"],
     output: forgescript_1.ArgType.Number,
     unwrap: true,
@@ -19,21 +20,21 @@ exports.default = new forgescript_1.NativeFunction({
         },
         {
             name: "sort type",
-            description: "The sort order for the leaderboard, either ascending (asc) or descending (desc)",
+            description: "The sort order for the leaderboard, either ascending (asc) or descending (desc, the default)",
             rest: false,
             type: forgescript_1.ArgType.Enum,
             enum: util_1.SortType,
         },
         {
             name: "member ID",
-            description: "The member ID for which to retrieve the position",
+            description: "The member ID, defaults to the member of the command",
             rest: false,
             type: forgescript_1.ArgType.String,
             required: false,
         },
         {
             name: "guild ID",
-            description: "The guild ID to which the member belongs",
+            description: "The guild ID to which the member belongs, defaults to the guild of the command",
             rest: false,
             type: forgescript_1.ArgType.Guild,
             required: false,
@@ -41,9 +42,11 @@ exports.default = new forgescript_1.NativeFunction({
     ],
     brackets: true,
     async execute(ctx, [name, sortType, member, guild]) {
-        const data = await util_1.DataBase.find({ name, type: "member", guildId: guild?.id ?? ctx.guild.id });
-        const index = data.sort((x, y) => (sortType === util_1.SortType.asc ? Number(x.value) - Number(y.value) : Number(y.value) - Number(x.value))).findIndex((s) => s.id === (member ?? ctx.member?.id));
-        return this.success(index + 1);
+        return (0, functions_1.guarded)(this, async () => {
+            const guildId = (0, functions_1.requireId)(guild, ctx.guild?.id, "guild ID");
+            const board = await util_1.DataBase.leaderboard({ type: "member", name, guildId, sort: sortType === util_1.SortType.asc ? "asc" : "desc" });
+            return this.success(board.positionOf((0, functions_1.pickId)(member) ?? ctx.member?.id ?? ctx.user?.id));
+        });
     },
 });
 //# sourceMappingURL=getMemberLeaderboardValue.js.map

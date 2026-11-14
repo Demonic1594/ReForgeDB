@@ -18,6 +18,12 @@ declare const _default: NativeFunction<[{
     rest: false;
     type: ArgType.Number;
     required: true;
+}, {
+    name: string;
+    description: string;
+    rest: false;
+    type: ArgType.String;
+    required: false;
 }], true>;
 export default _default;
 //# sourceMappingURL=getChannelLeaderboardID.d.ts.map

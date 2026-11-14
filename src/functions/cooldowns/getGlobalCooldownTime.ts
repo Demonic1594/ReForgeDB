@@ -1,23 +1,25 @@
 import { ArgType, NativeFunction } from "@tryforge/forgescript"
 import { DataBase } from "../../util"
+import { guarded } from "../../util/functions"
 
 export default new NativeFunction({
     name: "$getGlobalCooldownTime",
+    aliases: ["$dbGetGlobalCooldownTime"],
     version: "2.0.0",
-    description: "Retrieves current cooldown time in ms for a global",
+    description: "Returns the ms left of a global cooldown, or 0",
     output: ArgType.Number,
-    brackets: true,
     unwrap: true,
+    brackets: true,
     args: [
         {
             name: "name",
-            description: "The name of the command you are trying to check the cooldown",
+            description: "The name of the cooldown",
             rest: false,
             type: ArgType.String,
             required: true,
         },
     ],
     async execute(_ctx, [name]) {
-        return this.success((await DataBase.cdTimeLeft(DataBase.make_cdIdentifier({ name }))).left)
+        return guarded(this, async () => this.success((await DataBase.cdTimeLeft(DataBase.make_cdIdentifier({ name }))).left))
     },
 })

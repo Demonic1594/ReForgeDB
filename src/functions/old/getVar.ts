@@ -1,13 +1,13 @@
-import { ArgType, IExtendedCompilationResult, Interpreter, NativeFunction } from "@tryforge/forgescript"
-import { ForgeDB } from "../.."
-import { DataBase } from "../../util"
+import { ArgType, NativeFunction } from "@tryforge/forgescript"
+import { guarded, readVariable } from "../../util/functions"
 
 export default new NativeFunction({
     name: "$getVar",
     version: "1.0.0",
-    description: "Returns an identifier's value in a variable",
+    description: "Returns an identifier's value in a variable (legacy: prefer the typed functions such as $getUserVar)",
     output: ArgType.Unknown,
     unwrap: true,
+    brackets: true,
     args: [
         {
             name: "name",
@@ -18,44 +18,20 @@ export default new NativeFunction({
         },
         {
             name: "id",
-            description: "The identifier of the value (a user, guild, channel, message, etc)",
+            description: "The identifier for the value (a user, guild, channel, message, etc)",
             rest: false,
             type: ArgType.String,
             required: true,
         },
         {
             name: "default",
-            description: "The default value if the identifier doesn't exist in the variable",
+            description: "The value to return when the variable was never set",
             rest: false,
-            required: false,
             type: ArgType.String,
+            required: false,
         },
     ],
-    brackets: true,
     async execute(ctx, [name, id, def]) {
-        const data = await DataBase.get({
-            type: "old",
-            id,
-            name,
-        }).then((x) => x?.value)
-        if (data === null || data === undefined) {
-            if (def) return this.successJSON(def)
-            else if (ForgeDB.defaults && name in ForgeDB.defaults) {
-                const defData = ForgeDB.defaults[name]
-                if ("functions" in (defData as IExtendedCompilationResult)) {
-                    const d = <IExtendedCompilationResult>defData
-                    // Run
-                    const result = await Interpreter.run(
-                        ctx.clone({
-                            data: d,
-                            doNotSend: true,
-                            redirectErrorsToConsole: true,
-                        })
-                    )
-                    return result === null ? this.stop() : this.successJSON(result)
-                } else return this.successJSON(defData)
-            }
-        }
-        return this.successJSON(data)
+        return guarded(this, () => readVariable(this, ctx, { name, id, type: "old" }, def))
     },
 })
