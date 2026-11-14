@@ -30,12 +30,12 @@ ReForgeDB is a reworked, hardened and faster database extension for ForgeScript:
 
 <h3 align="center">Why ReForgeDB</h3><hr>
 
-- 🗄️ **Your database keeps working.** Same tables, same keys, same file (`database/forge.db`). ReForgeDB opens a ForgeDB database as it is; a test upgrades one on every supported database.
+- 🗄️ **Your database keeps working.** Same tables and keys. ForgeDB's `database/forge.db` is renamed to `database/reforge.db` on first start, and a test upgrades a ForgeDB database on every supported database.
 - ⏱️ **Cooldowns that work.** In ForgeDB, 11 of the 15 cooldown functions never loaded, and on MySQL and PostgreSQL no cooldown could be stored at all. ReForgeDB's survive restarts, take any duration, and cannot be claimed twice by spamming.
 - 🛡️ **Survives a database that is down.** It reconnects by itself, and functions answer with an error your code can catch instead of crashing the bot.
 - ⚡ **Faster.** Writes are 3 to 10 times faster, a leaderboard command scans its variable once instead of once per function, and deleting thousands of variables is one statement.
 - 🔎 **Tells you what is wrong.** Clear errors that `$try` can catch, five log levels up to every SQL statement, and warnings for slow operations.
-- 🧪 **Tested.** 96 tests, run in CI on SQLite, better-sqlite3, PostgreSQL, MariaDB, MySQL and MongoDB, on ForgeScript 2.5 and 2.8.
+- 🧪 **Tested.** 104 tests, run in CI on SQLite, better-sqlite3, PostgreSQL, MariaDB, MySQL and MongoDB, on ForgeScript 2.5 and 2.8.
 
 <details>
 <summary><b>Everything fixed compared to ForgeDB 2.1.1</b></summary>
@@ -52,7 +52,7 @@ ReForgeDB is a reworked, hardened and faster database extension for ForgeScript:
 - A database that was unreachable at start-up ended the bot (unhandled rejection); functions used before the connection crashed with `Cannot read properties of undefined`.
 - Errors inside functions stopped the command silently and could not be caught with `$try`: a channel or role that no longer exists, `$getMemberVar` in a DM, `$getRoleVar` without a role, `$data` outside an event, `$getVar` with a numeric default.
 - Events were emitted before the write, and `variableDelete` fired for variables that did not exist.
-- `$dbPing` failed on MongoDB, where every read was also a full collection scan.
+- `$dbPing` failed on MongoDB, where every read was also a full collection scan, and two first writes at once could store a variable twice.
 - A MariaDB server used with `type: "mysql"` had its tables altered on every start.
 - `npm ci` failed (lock file out of date), `npm run commit` could run shell commands from the commit message, the README named the wrong PostgreSQL package, and dependencies had known vulnerabilities.
 
@@ -84,7 +84,7 @@ The full list, with what changed for your code, is in the [changelog](CHANGELOG.
     const client = new ForgeClient({
         ...options, // The options you currently have
         extensions: [
-            new ReForgeDB() // SQLite in database/forge.db
+            new ReForgeDB() // SQLite in database/reforge.db
         ]
     })
     ```
@@ -106,8 +106,8 @@ Requires Node.js 18.17 or newer (20.17 for `sqlite3` 6, 22 for ForgeScript 2.8) 
 |---|---|---|
 | `type` | `sqlite` | `sqlite`, `better-sqlite3`, `mysql`, `mariadb`, `postgres` or `mongodb` |
 | `url`, `host`, `port`, `username`, `password`, `database` | | Connection of a database server |
-| `folder` | `database` | SQLite: folder of the database file `forge.db` |
-| `wal` | `true` | SQLite: use the write-ahead log (much faster writes; adds `forge.db-wal` and `forge.db-shm` next to the file) |
+| `folder` | `database` | SQLite: folder of the database file `reforge.db` |
+| `wal` | `true` | SQLite: use the write-ahead log (much faster writes; adds `reforge.db-wal` and `reforge.db-shm` next to the file) |
 | `charset` | `utf8mb4_general_ci` | MySQL/MariaDB: connection charset (the default stores emojis) |
 | `events` | `[]` | Database events to listen to |
 | `logLevel` | `info` | `silent`, `error`, `warn`, `info`, `debug` or `trace`; also the `REFORGEDB_LOG_LEVEL` environment variable |
@@ -278,15 +278,15 @@ Measured on one machine against ForgeDB 2.1.1 with the same script (2,000 rows o
 
 Where it comes from: a write is one statement instead of three, SQLite uses its write-ahead log, leaderboards read two columns through an index and are sorted once per command, and bulk deletes are one statement.
 
-**The read cache** (`cache: true`) keeps the most recently used variables in memory, so reading one again costs no query. That matters most with a database on another machine, where each query is a network round trip. It is off by default because it is only correct when **one** bot process uses the database: a write made by another process (another shard process, a dashboard, a script) is not seen until the copy expires (`ttl`) or is evicted. Writes made through ReForgeDB itself, including raw `client.db.query()` calls, always update or clear it.
+**The read cache** (`cache: true`) keeps the most recently used variables in memory, so reading one again costs no query. That matters most with a database on another machine, where each query is a network round trip. It is off by default because it is only correct when **one** bot process uses the database: a write made by another process (another shard process, a dashboard, a script) is not seen until the copy expires (`ttl`) or is evicted. Writes made through ReForgeDB itself, including raw `client.db.query()` calls, always update or clear it; after changing the database another way, call `client.db.clearCache()`.
 
 Leaderboards are reused for `leaderboardCacheTTL` (2 s). Writes by the same process refresh them immediately; with several processes a leaderboard can be up to 2 s behind.
 
 <h3 align="center">Switching from ForgeDB</h3><hr>
 
-Your data stays where it is. ReForgeDB uses the same tables, keys and SQLite file.
+Your data stays where it is. ReForgeDB uses the same tables and keys, and takes over ForgeDB's SQLite file.
 
-1. Back up your database (copy `database/forge.db`, or dump the server database).
+1. Stop the bot and back up your database (copy `database/forge.db`, or dump the server database).
 2. Replace the package:
     ```bash
     npm uninstall @tryforge/forge.db
@@ -299,7 +299,13 @@ Your data stays where it is. ReForgeDB uses the same tables, keys and SQLite fil
     ReForgeDB.variables({ ... })                           // was: ForgeDB.variables({ ... })
     ```
 4. Rename the cooldown functions as shown under [Cooldowns](#cooldowns), if you want stored cooldowns.
-5. Start the bot. On first start ReForgeDB adds an index to the variables table, and on MySQL and PostgreSQL widens the two time columns of the cooldown table (which could not hold a cooldown before, so nothing is lost). SQLite gains two files, `forge.db-wal` and `forge.db-shm`: keep them with `forge.db` when you copy the database while the bot runs.
+5. Start the bot. On first start ReForgeDB:
+    - renames `database/forge.db` to `database/reforge.db` (with its `-journal`, `-wal` and `-shm` files, if any). If both files exist, `reforge.db` is used and `forge.db` is left alone, with a warning;
+    - adds an index to the variables table;
+    - on MySQL and PostgreSQL, widens the two time columns of the cooldown table (which could not hold a cooldown before, so nothing is lost);
+    - on MongoDB, removes duplicate documents of one variable that ForgeDB's concurrent writes could leave (the one ForgeDB read and updated is kept, and each removal is logged), then makes the key index unique.
+
+    SQLite then keeps two more files, `reforge.db-wal` and `reforge.db-shm`: copy them with `reforge.db` when you back up while the bot runs.
 
 What behaves differently:
 
@@ -331,13 +337,13 @@ class TicketsDatabase extends DataBaseManager {
 }
 ```
 
-and declares the dependency with `requireExtensions = ["reforge.db"]`. `getDB()` waits for ReForgeDB's configuration, shares one connection per `database` name, and can be called again after a failure to retry.
+and declares the dependency with `requireExtensions = ["reforge.db"]`. `getDB()` waits for ReForgeDB's configuration, shares one connection per `database` name, and can be called again after a failure to retry. Two optional hooks: `previousDatabase = "old.db"` renames an SQLite file of an earlier name on first start (ReForgeDB uses it for `forge.db`), and `beforeSynchronize(dataSource)` runs before TypeORM updates the schema.
 
 `client.db` is the `DataBase` class (`get`, `set`, `delete`, `getAll`, `find`, `search`, `leaderboard`, `cdAdd`, `cdTimeLeft`, ...), so code that reads through it, such as QuorielDB's `transferDatabase(client)`, works unchanged.
 
 <h3 align="center">Notes and Limits</h3><hr>
 
-- CI runs every test on SQLite (`sqlite3` and `better-sqlite3`), PostgreSQL 16, MariaDB 10.11 and MySQL 8.4. On MongoDB 7 it runs the function, event and extension-API tests; the upgrade, statement-count, cache and outage tests are written for SQL and do not run there yet.
+- CI runs every test on SQLite (`sqlite3` and `better-sqlite3`), PostgreSQL 16, MariaDB 10.11, MySQL 8.4 and MongoDB 7.
 - A cooldown cannot be claimed twice within one bot process. Two processes sharing a database could each let one claim through at the same instant.
 - Leaderboards are sorted in memory: fine for tens of thousands of entries per variable, not meant for millions.
 - On MySQL and MariaDB, a variable name, an ID and the key built from them are limited to 255 characters; longer ones are refused with a clear error.

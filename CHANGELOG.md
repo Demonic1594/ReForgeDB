@@ -8,6 +8,8 @@ Existing databases are used as they are: same tables, same keys, same SQLite fil
 
 ### Renamed
 - Package `@tryforge/reforge.db`, class `ReForgeDB`, options type `IReForgeDBOptions` (`IDataBaseOptions` still works), extension name `reforge.db`, event handler `ReForgeDBEvents`, log prefix `[ReForgeDB]`. The `ForgeDB` name is not exported.
+- `DBCommandManager`, `DBEventHandler`, `IDBEvents` and `DBLogger` are `ReForgeDBCommandManager`, `ReForgeDBEventHandler`, `IReForgeDBEvents` and `ReForgeDBLogger`. `DataBase` and `DataBaseManager` keep their names.
+- The SQLite file is `database/reforge.db`. ForgeDB's `database/forge.db` is renamed on first start, with its `-journal`, `-wal` and `-shm` files; when both exist, `reforge.db` is used and `forge.db` is left alone with a warning.
 - Extensions that require `forge.db` by name or import `@tryforge/forge.db` (ForgeGiveaways, ReForgeGiveaways up to 2.2.1) do not load with ReForgeDB until they are updated.
 
 ### Fixed: cooldowns
@@ -22,7 +24,7 @@ Existing databases are used as they are: same tables, same keys, same SQLite fil
 ### Fixed: variables
 - **An empty ID field used an empty ID.** ForgeScript passes an optional argument that is present but empty as `""`. `$getUserVar[coins;;0]` read the variable of user `""` (and returned the default instead of the user's coins), and `$setUserVar[coins;5;]` wrote to it. Empty now means "the ID of the command" in every function.
 - **Writing a new variable from two commands at once failed** with `UNIQUE constraint failed` or `duplicate key value` (49 of 50 concurrent writes). A write is one atomic upsert now.
-- On MongoDB an update was not awaited (errors were lost, and a read right after could see the old value).
+- On MongoDB an update was not awaited (errors were lost, and a read right after could see the old value), and two first writes of a variable at once could insert two documents. The key index is unique now; duplicates left by ForgeDB are removed on first start (the document ForgeDB read and updated is kept), which is logged.
 - `$getVar` threw a `TypeError` when the default declared with `variables()` was not text.
 - A default declared under a name such as `toString` or `constructor` matched JavaScript's own object properties.
 - `$getMemberVar`, `$setMemberVar`, `$getGuildVar` and others threw a `TypeError` in a direct message, and `$getRoleVar`/`$setRoleVar`/`$deleteRoleVar` without a role. They return an error that says which ID is missing.
@@ -51,7 +53,7 @@ Existing databases are used as they are: same tables, same keys, same SQLite fil
 - The check for a missing configuration threw inside a timer, where nothing could catch it, and kept a 10 s timer alive on every start.
 - Two extensions asking for the same database at the same moment opened it twice.
 - `$dbPing` ran `SELECT 1`, which fails on MongoDB.
-- MongoDB: every read scanned the whole collection (no index on the key).
+- MongoDB: every read scanned the whole collection (no index on the key). The key indexes are unique, which also makes concurrent writes safe.
 - A MariaDB server used with `type: "mysql"` (the only choice ForgeDB offered) had its tables altered on every start. The server is detected; `type: "mariadb"` exists too.
 - MySQL connections ask for `utf8mb4_general_ci` unless `charset` is set: the older `mysql` driver package defaults to a 3-byte charset that cannot store emojis.
 - The options object passed to the constructor was modified.
@@ -96,7 +98,9 @@ Measured against ForgeDB 2.1.1 with the same script on one machine.
 - `$env[row;...]` in leaderboard code also has `name`, `type`, `identifier` and `guildId`.
 - `$deleteRoleVar[name;role ID;guild ID?]` and `$deleteMemberVar` work for roles and guilds that no longer exist.
 - `DataBaseManager` internals are `#private`: an extension's subclass can define `connect()`, `open()` or `prepare()` without breaking it.
-- Test suite (96 tests) and CI on SQLite, better-sqlite3, PostgreSQL 16, MariaDB 10.11, MySQL 8.4 and MongoDB 7.
+- `client.db.clearCache()`, to see changes made outside ReForgeDB with the read cache on.
+- `DataBaseManager` hooks for extensions: `previousDatabase` (rename an SQLite file of an earlier name on first start) and `beforeSynchronize(dataSource)`.
+- Test suite (104 tests), run in CI on SQLite, better-sqlite3, PostgreSQL 16, MariaDB 10.11, MySQL 8.4 and MongoDB 7.
 
 ### Changed
 - `$dbPing` has output type `Number`; `$searchDB` output type `Json`.
@@ -105,8 +109,7 @@ Measured against ForgeDB 2.1.1 with the same script on one machine.
 - Requires Node.js 18.17 or newer.
 
 ### Notes
-- First start on a ForgeDB database: an index is added to `record`; on MySQL and PostgreSQL the `startedAt` and `duration` columns of `cooldown` become `bigint` (TypeORM re-creates them; they could not hold a valid cooldown before). SQLite switches to write-ahead logging.
-- On MongoDB, CI runs the function, event and extension-API tests; the upgrade, statement-count, cache and outage tests are written for SQL and do not run there yet.
+- First start on a ForgeDB database: `forge.db` becomes `reforge.db` (SQLite); duplicate MongoDB documents of one key are removed; an index is added to `record`; on MySQL and PostgreSQL the `startedAt` and `duration` columns of `cooldown` become `bigint` (TypeORM re-creates them; they could not hold a valid cooldown before). SQLite switches to write-ahead logging.
 - The typedoc output (`docs/`) and the two guides about leaving ForgeDB 1.x are no longer in the repository; `npm run docs` builds the former.
 
 ## Earlier versions
