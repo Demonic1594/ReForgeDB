@@ -86,6 +86,13 @@ export declare class DataBase extends DataBaseManager {
     private static entities;
     private static db;
     private static sql;
+    /**
+     * When each cooldown this process saw runs out (ms since epoch). Only a
+     * guess of whether a claim will pass, used to pick the statement that
+     * likely decides it in one round trip; the database still decides every
+     * claim, so a stale guess costs a round trip, never a wrong answer.
+     */
+    private static cooldownHints;
     private static emitter;
     private static settings;
     private static fatal;
@@ -229,6 +236,8 @@ export declare class DataBase extends DataBaseManager {
     }>;
     /** Ends a cooldown. */
     static cdDelete(identifier: string): Promise<void>;
+    /** Remembers when a cooldown runs out, at most 10,000 of them (the oldest are forgotten first). */
+    private static hint;
     /** The stored cooldown with `left` (ms remaining, `0` when none or expired). */
     static cdTimeLeft(identifier: string): Promise<{
         left: number;
@@ -249,6 +258,13 @@ export declare class DataBase extends DataBaseManager {
         id?: string;
         duration: number;
     }): Promise<number>;
+    /** Whether a claim can be decided by one write on this database. */
+    private static get canClaimFirst();
+    /**
+     * Starts a cooldown with one write if it does not exist or has run out.
+     * `true` when this call started it, `false` when it was running.
+     */
+    private static claimFirst;
     /**
      * Starts a cooldown only if it is still free in the database: one that
      * exists is restarted only if it has run out, a new one is inserted only

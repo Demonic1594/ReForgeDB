@@ -24,9 +24,10 @@ ReForgeDB is a reworked, hardened and faster database extension for ForgeScript:
 9. [Performance](#performance)
 10. [Switching from ForgeDB](#switching-from-forgedb)
 11. [Other Extensions](#other-extensions)
-12. [Notes and Limits](#notes-and-limits)
-13. [Development](#development)
-14. [Credits and License](#credits-and-license)
+12. [Switching Between sqlite and better-sqlite3](#switching-between-sqlite-and-better-sqlite3)
+13. [Notes and Limits](#notes-and-limits)
+14. [Development](#development)
+15. [Credits and License](#credits-and-license)
 
 <h3 align="center">Why ReForgeDB</h3><hr>
 
@@ -35,7 +36,7 @@ ReForgeDB is a reworked, hardened and faster database extension for ForgeScript:
 - 🛡️ **Survives a database that is down.** It reconnects by itself, and functions answer with an error your code can catch instead of crashing the bot.
 - ⚡ **Faster.** Writes are 3 to 10 times faster, a leaderboard command scans its variable once instead of once per function, and deleting thousands of variables is one statement.
 - 🔎 **Tells you what is wrong.** Clear errors that `$try` can catch, five log levels up to every SQL statement, and warnings for slow operations.
-- 🧪 **Tested.** 129 tests, including a seeded fuzz test with injected database failures, run in CI on SQLite, better-sqlite3, PostgreSQL, MariaDB, MySQL and MongoDB, on ForgeScript 2.5 and 2.8.
+- 🧪 **Tested.** 145 tests, including a seeded fuzz test with injected database failures and switching between the two SQLite drivers under load, run in CI on SQLite, better-sqlite3, PostgreSQL, MariaDB, MySQL and MongoDB, on ForgeScript 2.5 and 2.8.
 
 <details>
 <summary><b>Everything fixed compared to ForgeDB 2.1.1</b></summary>
@@ -279,6 +280,8 @@ Measured on one machine against ForgeDB 2.1.1 with the same script (2,000 rows o
 
 Where it comes from: a write is one statement instead of three, SQLite uses its write-ahead log, leaderboards read two columns through an index and are sorted once per command, and bulk deletes are one statement.
 
+**Cooldown claims** are one statement, whether the claim starts the cooldown or finds it running. ReForgeDB remembers when each cooldown it saw runs out, and uses that to pick the statement that decides the claim: a conditional write when the cooldown is probably free, a read when it is probably running. The database still decides every claim, so a wrong guess (another process started or deleted the cooldown) costs one more statement, never a wrong answer. On MySQL and MariaDB starting a cooldown stays two statements (a read, then a conditional write). With PostgreSQL 5 ms away (each direction), starting a cooldown took 24 ms in 3.0.0 and 13 ms in 3.1.0; finding it running stays about 12 ms.
+
 **The read cache** (`cache: true`) keeps the most recently used variables in memory, so reading one again costs no query. That matters most with a database on another machine, where each query is a network round trip. It is off by default because it is only correct when **one** bot process uses the database: a write made by another process (another shard process, a dashboard, a script) is not seen until the copy expires (`ttl`) or is evicted. Writes made through ReForgeDB itself, including raw `client.db.query()` calls, always update or clear it; after changing the database another way, call `client.db.clearCache()`.
 
 Leaderboards are reused for `leaderboardCacheTTL` (2 s). Writes by the same process refresh them immediately; with several processes a leaderboard can be up to 2 s behind.
@@ -354,6 +357,13 @@ class TicketsDatabase extends DataBaseManager {
 and declares the dependency with `requireExtensions = ["reforge.db"]`. `getDB()` waits for ReForgeDB's configuration, shares one connection per `database` name, and can be called again after a failure to retry. Optional hooks: `previousDatabase = "old.db"` with `previousDatabaseAction` (`use`, `copy`, `rename` or `ignore`) handles an SQLite file of an earlier name (ReForgeDB uses them for `forge.db`), and `beforeSynchronize(dataSource)` runs before TypeORM updates the schema.
 
 `client.db` is the `DataBase` class (`get`, `set`, `delete`, `getAll`, `find`, `search`, `leaderboard`, `cdAdd`, `cdTimeLeft`, ...), so code that reads through it, such as QuorielDB's `transferDatabase(client)`, works unchanged.
+
+<h3 align="center">Switching Between sqlite and better-sqlite3</h3><hr>
+
+Both drivers read and write the same file format, so you can change `type` between `"sqlite"` and `"better-sqlite3"` and keep your data: nothing is converted and the schema is not changed. Install the new driver first (`npm i better-sqlite3` or `npm i sqlite3`). `test/driver.test.js` switches in both directions, back and forth with the write-ahead log off and on, after a crash, and with both drivers writing one file from several processes at once.
+
+> ⚠️ **Warning**\
+> Never open the database file with the **other** driver in the **same process** (for example a dashboard in the bot's process using better-sqlite3 while ReForgeDB uses sqlite3). Each driver brings its own copy of SQLite, and two copies in one process do not see each other's locks, which can corrupt the file (SQLite's [How To Corrupt An SQLite Database File](https://www.sqlite.org/howtocorrupt.html), "Multiple copies of SQLite linked into the same application"). Separate processes are safe: they take turns, and a write that waits longer than 5 s fails with an error `$try` can catch.
 
 <h3 align="center">Notes and Limits</h3><hr>
 
