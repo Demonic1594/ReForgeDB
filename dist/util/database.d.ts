@@ -75,7 +75,7 @@ export declare function resolveSettings(options: IReForgeDBOptions | undefined):
 export declare class DataBase extends DataBaseManager {
     /** The SQLite file, in the `folder` option (`database/reforge.db` by default). */
     database: string;
-    /** ForgeDB's file name: renamed to `reforge.db` on first start. */
+    /** ForgeDB's file name; the `forgeDBFile` option says what happens to it. */
     previousDatabase: string;
     entityManager: {
         sqlite: (typeof SQLiteRecord | typeof Cooldown)[];

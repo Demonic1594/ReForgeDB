@@ -30,6 +30,9 @@ export enum VariableType {
 /** The database types ReForgeDB can use. `mariadb` uses the MySQL entities. */
 export type DriverType = "mysql" | "mariadb" | "postgres" | "mongodb" | "better-sqlite3" | "sqlite"
 
+/** What to do with a database file of an earlier name; see `DataBaseManager.previousDatabaseAction`. */
+export type PreviousDatabaseAction = "use" | "copy" | "rename" | "ignore"
+
 /** The four entity families (SQLite and better-sqlite3 share one, MySQL and MariaDB share one). */
 export type DriverKind = "sqlite" | "mysql" | "postgres" | "mongodb"
 
@@ -129,6 +132,17 @@ export type IReForgeDBOptions = (
           folder?: string
           /** Use SQLite's write-ahead log: much faster writes, readers never block. Defaults to `true`. */
           wal?: boolean
+          /**
+           * What to do with ForgeDB's `forge.db`, when it is in the folder and
+           * `reforge.db` is not:
+           * - `use` (default): keep using `forge.db` where it is
+           * - `copy`: copy it to `reforge.db` and use the copy; `forge.db` is kept as a backup
+           * - `rename`: rename it to `reforge.db`
+           * - `ignore`: start a new, empty `reforge.db`; `forge.db` is left alone
+           *
+           * When both files exist, `reforge.db` is used.
+           */
+          forgeDBFile?: PreviousDatabaseAction
       }
 ) &
     IReForgeDBCommonOptions

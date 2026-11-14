@@ -9,7 +9,7 @@ Existing databases are used as they are: same tables, same keys, same SQLite fil
 ### Renamed
 - Package `@tryforge/reforge.db`, class `ReForgeDB`, options type `IReForgeDBOptions` (`IDataBaseOptions` still works), extension name `reforge.db`, event handler `ReForgeDBEvents`, log prefix `[ReForgeDB]`. The `ForgeDB` name is not exported.
 - `DBCommandManager`, `DBEventHandler`, `IDBEvents` and `DBLogger` are `ReForgeDBCommandManager`, `ReForgeDBEventHandler`, `IReForgeDBEvents` and `ReForgeDBLogger`. `DataBase` and `DataBaseManager` keep their names.
-- The SQLite file is `database/reforge.db`. ForgeDB's `database/forge.db` is renamed on first start, with its `-journal`, `-wal` and `-shm` files; when both exist, `reforge.db` is used and `forge.db` is left alone with a warning.
+- The SQLite file of a new install is `database/reforge.db`. An existing ForgeDB `database/forge.db` is used where it is unless the new `forgeDBFile` option says otherwise: `copy` (to `reforge.db`, keeping `forge.db`), `rename`, or `ignore` (start empty). Side files are copied or moved with it. Once `reforge.db` exists it is always used.
 - Extensions that require `forge.db` by name or import `@tryforge/forge.db` (ForgeGiveaways, ReForgeGiveaways up to 2.2.1) do not load with ReForgeDB until they are updated.
 
 ### Fixed: cooldowns
@@ -99,8 +99,8 @@ Measured against ForgeDB 2.1.1 with the same script on one machine.
 - `$deleteRoleVar[name;role ID;guild ID?]` and `$deleteMemberVar` work for roles and guilds that no longer exist.
 - `DataBaseManager` internals are `#private`: an extension's subclass can define `connect()`, `open()` or `prepare()` without breaking it.
 - `client.db.clearCache()`, to see changes made outside ReForgeDB with the read cache on.
-- `DataBaseManager` hooks for extensions: `previousDatabase` (rename an SQLite file of an earlier name on first start) and `beforeSynchronize(dataSource)`.
-- Test suite (104 tests), run in CI on SQLite, better-sqlite3, PostgreSQL 16, MariaDB 10.11, MySQL 8.4 and MongoDB 7.
+- `DataBaseManager` hooks for extensions: `previousDatabase` and `previousDatabaseAction` (use, copy, rename or ignore an SQLite file of an earlier name) and `beforeSynchronize(dataSource)`.
+- Test suite (111 tests), run in CI on SQLite, better-sqlite3, PostgreSQL 16, MariaDB 10.11, MySQL 8.4 and MongoDB 7.
 
 ### Changed
 - `$dbPing` has output type `Number`; `$searchDB` output type `Json`.
@@ -109,7 +109,7 @@ Measured against ForgeDB 2.1.1 with the same script on one machine.
 - Requires Node.js 18.17 or newer.
 
 ### Notes
-- First start on a ForgeDB database: `forge.db` becomes `reforge.db` (SQLite); duplicate MongoDB documents of one key are removed; an index is added to `record`; on MySQL and PostgreSQL the `startedAt` and `duration` columns of `cooldown` become `bigint` (TypeORM re-creates them; they could not hold a valid cooldown before). SQLite switches to write-ahead logging.
+- First start on a ForgeDB database: duplicate MongoDB documents of one key are removed; an index is added to `record`; on MySQL and PostgreSQL the `startedAt` and `duration` columns of `cooldown` become `bigint` (TypeORM re-creates them; they could not hold a valid cooldown before). SQLite switches to write-ahead logging.
 - The typedoc output (`docs/`) and the two guides about leaving ForgeDB 1.x are no longer in the repository; `npm run docs` builds the former.
 
 ## Earlier versions

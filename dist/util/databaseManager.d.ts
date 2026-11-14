@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { DataSource, EntitySchema, MixedList } from "typeorm";
-import { DriverKind, IReForgeDBOptions } from "./types";
+import { DriverKind, IReForgeDBOptions, PreviousDatabaseAction } from "./types";
 export type EntityList = MixedList<Function | string | EntitySchema>;
 /**
  * Base class for anything that stores data through ReForgeDB's connection
@@ -33,11 +33,21 @@ export declare abstract class DataBaseManager {
     };
     /**
      * SQLite only: the file name this database had before (for example
-     * `forge.db`). When `database` does not exist yet and this one does, it is
-     * renamed on first start, with its `-wal`, `-shm` and `-journal` files, so
-     * the data carries over.
+     * ForgeDB's `forge.db`). See `previousDatabaseAction` for what happens to
+     * it when `database` does not exist yet.
      */
     previousDatabase?: string;
+    /**
+     * What to do with `previousDatabase` when it exists and `database` does
+     * not (SQLite only). When both exist, `database` is used.
+     *
+     * - `use` (default): open the old file where it is; nothing is moved
+     * - `copy`: copy it (and its `-journal`, `-wal`, `-shm` files) to
+     *   `database` and use the copy; the old file is kept as it was
+     * - `rename`: rename it (and its side files) to `database`
+     * - `ignore`: create a new, empty `database`; the old file is left alone
+     */
+    previousDatabaseAction: PreviousDatabaseAction;
     type?: IReForgeDBOptions["type"];
     static type: IReForgeDBOptions["type"];
     constructor(options?: IReForgeDBOptions);

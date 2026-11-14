@@ -18,6 +18,7 @@ import {
     MySQLRecord,
     MySQLRecordWithoutIndex,
     PostgreSQLRecord,
+    PreviousDatabaseAction,
     RecordData,
     RecordType,
     SQLCooldown,
@@ -219,6 +220,10 @@ export function resolveSettings(options: IReForgeDBOptions | undefined): Setting
         throw new ReForgeDBError(`Unknown logLevel "${o.logLevel}". Use silent, error, warn, info, debug or trace.`)
     }
     if (o.events !== undefined && !Array.isArray(o.events)) throw new ReForgeDBError(`Option "events" must be an array of event names.`)
+    const forgeDBFile = (o as { forgeDBFile?: unknown }).forgeDBFile
+    if (forgeDBFile !== undefined && !["use", "copy", "rename", "ignore"].includes(forgeDBFile as string)) {
+        throw new ReForgeDBError(`Unknown forgeDBFile "${String(forgeDBFile)}". Use use, copy, rename or ignore.`)
+    }
     let cache: Settings["cache"] = null
     if (o.cache) {
         const c = o.cache === true ? {} : o.cache
@@ -246,8 +251,9 @@ export function resolveSettings(options: IReForgeDBOptions | undefined): Setting
 export class DataBase extends DataBaseManager {
     /** The SQLite file, in the `folder` option (`database/reforge.db` by default). */
     public database = "reforge.db"
-    /** ForgeDB's file name: renamed to `reforge.db` on first start. */
+    /** ForgeDB's file name; the `forgeDBFile` option says what happens to it. */
     public override previousDatabase = "forge.db"
+
     public entityManager = {
         sqlite: [SQLiteRecord, Cooldown],
         mongodb: [MongoRecord, MongoCooldown],
@@ -277,6 +283,7 @@ export class DataBase extends DataBaseManager {
 
     constructor(emitter: Emitter, options?: IReForgeDBOptions) {
         super(options ?? { type: "sqlite" })
+        this.previousDatabaseAction = (DataBaseManager.config as { forgeDBFile?: PreviousDatabaseAction } | undefined)?.forgeDBFile ?? "use"
         DataBase.emitter = emitter
         DataBase.configure(options)
     }

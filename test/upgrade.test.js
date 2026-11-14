@@ -46,7 +46,7 @@ let h, DB
 
 async function raw() {
     const o = { ...options }
-    // ForgeDB's file name: ReForgeDB renames it to reforge.db on first start.
+    // ForgeDB's file name.
     if (kind === "sqlite") o.database = path.join(dir, "forge.db")
     delete o.folder
     return new DataSource({ ...o, entities: [], synchronize: false }).initialize()
@@ -110,11 +110,11 @@ after(async () => {
     await DB?.close()
 })
 
-if (kind === "sqlite") test("SQLite: ForgeDB's forge.db was renamed to reforge.db", () => {
+if (kind === "sqlite") test("SQLite: ForgeDB's forge.db is used where it is (nothing moved without forgeDBFile)", () => {
     const fs = require("fs")
-    assert.ok(fs.existsSync(path.join(dir, "reforge.db")))
-    assert.ok(!fs.existsSync(path.join(dir, "forge.db")))
-    assert.ok(h.logsOf("info").some((l) => l.includes(`Renamed ${path.join(dir, "forge.db")} to ${path.join(dir, "reforge.db")}`)))
+    assert.equal(DB.dataSource.options.database, path.join(dir, "forge.db"))
+    assert.ok(fs.existsSync(path.join(dir, "forge.db")))
+    assert.ok(!fs.existsSync(path.join(dir, "reforge.db")))
 })
 
 test("every ForgeDB record is still there, unchanged", async () => {

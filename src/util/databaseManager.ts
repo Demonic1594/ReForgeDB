@@ -1,15 +1,31 @@
 import "reflect-metadata"
-import { existsSync, renameSync } from "fs"
+import { constants, copyFileSync, existsSync, renameSync } from "fs"
 import { join } from "path"
 import { DataSource, DataSourceOptions, EntitySchema, MixedList } from "typeorm"
-import { DriverKind, driverKind, IReForgeDBOptions } from "./types"
+import { DriverKind, driverKind, IReForgeDBOptions, PreviousDatabaseAction } from "./types"
 import { ReForgeDBLogger, errorMessage, ReForgeDBError } from "./logger"
 
 /** How long `getDB()` waits for ReForgeDB to be constructed before failing. */
 const CONFIG_TIMEOUT = 10_000
 
+/** SQLite files that belong to a database file: rollback journal, write-ahead log and its index. */
+const SIDE_FILES = ["-journal", "-wal", "-shm"]
+
 /** Option keys that are ReForgeDB's own and never reach TypeORM. */
-const OWN_OPTIONS = new Set(["events", "logLevel", "slowQueryThreshold", "cache", "leaderboardCacheTTL", "cooldownSweepInterval", "readyTimeout", "synchronize", "typeorm", "folder", "wal"])
+const OWN_OPTIONS = new Set([
+    "forgeDBFile",
+    "events",
+    "logLevel",
+    "slowQueryThreshold",
+    "cache",
+    "leaderboardCacheTTL",
+    "cooldownSweepInterval",
+    "readyTimeout",
+    "synchronize",
+    "typeorm",
+    "folder",
+    "wal",
+])
 
 let config: IReForgeDBOptions | undefined
 const configWaiters: Array<(options: IReForgeDBOptions) => void> = []
@@ -67,11 +83,25 @@ export abstract class DataBaseManager {
 
     /**
      * SQLite only: the file name this database had before (for example
-     * `forge.db`). When `database` does not exist yet and this one does, it is
-     * renamed on first start, with its `-wal`, `-shm` and `-journal` files, so
-     * the data carries over.
+     * ForgeDB's `forge.db`). See `previousDatabaseAction` for what happens to
+     * it when `database` does not exist yet.
      */
     public previousDatabase?: string
+
+    /**
+     * What to do with `previousDatabase` when it exists and `database` does
+     * not (SQLite only). When both exist, `database` is used.
+     *
+     * - `use` (default): open the old file where it is; nothing is moved
+     * - `copy`: copy it (and its `-journal`, `-wal`, `-shm` files) to
+     *   `database` and use the copy; the old file is kept as it was
+     * - `rename`: rename it (and its side files) to `database`
+     * - `ignore`: create a new, empty `database`; the old file is left alone
+     */
+    public previousDatabaseAction: PreviousDatabaseAction = "use"
+
+    /** The SQLite file this manager opens, once decided (`database` or `previousDatabase`). */
+    #file?: string
 
     public type?: IReForgeDBOptions["type"]
     public static type: IReForgeDBOptions["type"]
@@ -120,7 +150,7 @@ export abstract class DataBaseManager {
         }
         if (kind === "sqlite") {
             const sqlite = options as Extract<IReForgeDBOptions, { type: "sqlite" | "better-sqlite3" }>
-            base.database = `${sqlite.folder ?? "database"}/${this.database}`
+            base.database = join(sqlite.folder ?? "database", this.#file ?? this.database)
             if (sqlite.wal !== false) base.enableWAL = true
             if (options.type === "sqlite") base.busyTimeout ??= 5000
             if (options.type === "better-sqlite3") base.timeout ??= 5000
@@ -179,38 +209,58 @@ export abstract class DataBaseManager {
     }
 
     /**
-     * Renames `previousDatabase` to `database` in the SQLite folder. The side
-     * files go first and the database file last, so an interrupted rename is
-     * finished on the next start: the new file only exists once everything
-     * has moved, and each side file keeps the name of the file it belongs to.
+     * Decides which SQLite file to open, and copies or renames the previous
+     * one when asked to. Side files go first and the database file last, so
+     * an interrupted copy or rename is finished on the next start: the new
+     * file only exists once everything is in place.
      */
-    #renamePrevious(options: IReForgeDBOptions) {
+    #chooseFile(options: IReForgeDBOptions) {
+        this.#file = this.database
         const previous = this.previousDatabase
         if (!previous || previous === this.database || driverKind(options.type) !== "sqlite") return
         const folder = (options as { folder?: string }).folder ?? "database"
         const from = join(folder, previous)
         const to = join(folder, this.database)
         if (!existsSync(from)) return
+        const action = this.previousDatabaseAction
         if (existsSync(to)) {
-            ReForgeDBLogger.warn(`Both ${from} and ${to} exist. Using ${to}; ${from} is left as it is (delete it once you no longer need it).`)
+            if (action !== "ignore") ReForgeDBLogger.warn(`Both ${from} and ${to} exist. Using ${to}; ${from} is left as it is (delete it once you no longer need it).`)
             return
         }
-        try {
-            for (const suffix of ["-journal", "-wal", "-shm"]) {
-                if (existsSync(from + suffix) && !existsSync(to + suffix)) renameSync(from + suffix, to + suffix)
+        switch (action) {
+            case "ignore":
+                ReForgeDBLogger.info(`Not using ${from}: starting a new database in ${to}`)
+                return
+            case "copy":
+            case "rename": {
+                const verb = action === "copy" ? "copy" : "rename"
+                try {
+                    for (const suffix of SIDE_FILES) {
+                        if (!existsSync(from + suffix)) continue
+                        // A side file of the new name without its database is left over from
+                        // an interrupted copy: replace it. An interrupted rename already moved it.
+                        if (action === "copy") copyFileSync(from + suffix, to + suffix)
+                        else if (!existsSync(to + suffix)) renameSync(from + suffix, to + suffix)
+                    }
+                    if (action === "copy") copyFileSync(from, to, constants.COPYFILE_EXCL)
+                    else renameSync(from, to)
+                } catch (err) {
+                    throw new ReForgeDBError(`Could not ${verb} ${from} to ${to}: ${errorMessage(err)}. Stop anything that uses the file and start again, or ${verb} it yourself.`, err)
+                }
+                ReForgeDBLogger.info(action === "copy" ? `Copied ${from} to ${to}; ${from} is kept as it was` : `Renamed ${from} to ${to}`)
+                return
             }
-            renameSync(from, to)
-        } catch (err) {
-            throw new ReForgeDBError(`Could not rename ${from} to ${to}: ${errorMessage(err)}. Stop anything that uses the file and start again, or rename it yourself.`, err)
+            default:
+                this.#file = previous
+                ReForgeDBLogger.info(`Using ${from}. To move it to ${to}, see the forgeDBFile option.`)
         }
-        ReForgeDBLogger.info(`Renamed ${from} to ${to}`)
     }
 
     async #open(options: IReForgeDBOptions): Promise<DataSource> {
         const kind = driverKind(options.type)
         const entities = this.entityManager[kind]
         const started = Date.now()
-        this.#renamePrevious(options)
+        this.#chooseFile(options)
         try {
             const db = await this.#connect(options, entities)
             await this.#prepare(db, options)

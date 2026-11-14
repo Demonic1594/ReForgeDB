@@ -146,6 +146,10 @@ function resolveSettings(options) {
     }
     if (o.events !== undefined && !Array.isArray(o.events))
         throw new logger_1.ReForgeDBError(`Option "events" must be an array of event names.`);
+    const forgeDBFile = o.forgeDBFile;
+    if (forgeDBFile !== undefined && !["use", "copy", "rename", "ignore"].includes(forgeDBFile)) {
+        throw new logger_1.ReForgeDBError(`Unknown forgeDBFile "${String(forgeDBFile)}". Use use, copy, rename or ignore.`);
+    }
     let cache = null;
     if (o.cache) {
         const c = o.cache === true ? {} : o.cache;
@@ -173,7 +177,7 @@ function resolveSettings(options) {
 class DataBase extends databaseManager_1.DataBaseManager {
     /** The SQLite file, in the `folder` option (`database/reforge.db` by default). */
     database = "reforge.db";
-    /** ForgeDB's file name: renamed to `reforge.db` on first start. */
+    /** ForgeDB's file name; the `forgeDBFile` option says what happens to it. */
     previousDatabase = "forge.db";
     entityManager = {
         sqlite: [types_1.SQLiteRecord, types_1.Cooldown],
@@ -201,6 +205,7 @@ class DataBase extends databaseManager_1.DataBaseManager {
     static locks = new primitives_1.KeyedMutex();
     constructor(emitter, options) {
         super(options ?? { type: "sqlite" });
+        this.previousDatabaseAction = databaseManager_1.DataBaseManager.config?.forgeDBFile ?? "use";
         DataBase.emitter = emitter;
         DataBase.configure(options);
     }
