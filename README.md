@@ -35,7 +35,7 @@ ReForgeDB is a reworked, hardened and faster database extension for ForgeScript:
 - 🛡️ **Survives a database that is down.** It reconnects by itself, and functions answer with an error your code can catch instead of crashing the bot.
 - ⚡ **Faster.** Writes are 3 to 10 times faster, a leaderboard command scans its variable once instead of once per function, and deleting thousands of variables is one statement.
 - 🔎 **Tells you what is wrong.** Clear errors that `$try` can catch, five log levels up to every SQL statement, and warnings for slow operations.
-- 🧪 **Tested.** 128 tests, including a seeded fuzz test with injected database failures, run in CI on SQLite, better-sqlite3, PostgreSQL, MariaDB, MySQL and MongoDB, on ForgeScript 2.5 and 2.8.
+- 🧪 **Tested.** 129 tests, including a seeded fuzz test with injected database failures, run in CI on SQLite, better-sqlite3, PostgreSQL, MariaDB, MySQL and MongoDB, on ForgeScript 2.5 and 2.8.
 
 <details>
 <summary><b>Everything fixed compared to ForgeDB 2.1.1</b></summary>
@@ -67,7 +67,7 @@ The full list, with what changed for your code, is in the [changelog](CHANGELOG.
     | Database | `type` | Install |
     |---|---|---|
     | SQLite (default) | `sqlite` | `npm i github:Demonic1594/ReForgeDB sqlite3` |
-    | SQLite, faster driver (reads about 15 times faster here) | `better-sqlite3` | `npm i github:Demonic1594/ReForgeDB better-sqlite3` |
+    | SQLite, faster driver (about 3 times faster reads and writes from ForgeScript in our measurements) | `better-sqlite3` | `npm i github:Demonic1594/ReForgeDB better-sqlite3` |
     | PostgreSQL | `postgres` | `npm i github:Demonic1594/ReForgeDB pg` |
     | MySQL | `mysql` | `npm i github:Demonic1594/ReForgeDB mysql2` |
     | MariaDB | `mariadb` | `npm i github:Demonic1594/ReForgeDB mysql2` |

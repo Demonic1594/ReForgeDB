@@ -106,7 +106,7 @@ Measured against ForgeDB 2.1.1 with the same script on one machine.
 - `client.db.clearCache()`, to see changes made outside ReForgeDB with the read cache on.
 - `DataBaseManager` hooks for extensions: `previousDatabase` and `previousDatabaseAction` (use, copy, rename or ignore an SQLite file of an earlier name) and `beforeSynchronize(dataSource)`.
 - A seeded fuzz test: random concurrent writes, reads, deletes, searches and leaderboards with 5% injected database failures, compared with an in-memory model after every step, with the cache on and off (`FUZZ_SEED` replays a run).
-- Test suite (128 tests), run in CI on SQLite, better-sqlite3, PostgreSQL 16, MariaDB 10.11, MySQL 8.4 and MongoDB 7.
+- Test suite (129 tests), run in CI on SQLite, better-sqlite3, PostgreSQL 16, MariaDB 10.11, MySQL 8.4 and MongoDB 7.
 
 ### Changed
 - `$dbPing` has output type `Number`; `$searchDB` output type `Json`.
