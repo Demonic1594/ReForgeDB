@@ -29,11 +29,29 @@ test("a write is one statement, a read is one statement", async () => {
     assert.equal((await counter.during(() => run("$deleteUserVar[b]"))).count, 1, "$deleteUserVar")
 })
 
-test("a cooldown check is one read, plus one write when it starts", async () => {
-    assert.equal((await counter.during(() => run("$dbUserCooldown[cd;1h]"))).count, 2, "check + start")
-    assert.equal((await counter.during(() => exec("$dbUserCooldown[cd;1h;wait]"))).count, 1, "check only")
+test("a cooldown claim is one statement, whether it starts the cooldown or finds it running", async () => {
+    // Read-first (3.0.0): starting cost a read and a write. MySQL and MariaDB
+    // keep that: their conditional upsert has no reliable row count.
+    const start = kind === "mysql" ? 2 : 1
+    assert.equal((await counter.during(() => run("$dbUserCooldown[cd;1h]"))).count, start, "start")
+    assert.equal((await counter.during(() => exec("$dbUserCooldown[cd;1h;wait]"))).count, 1, "running")
+    assert.equal((await counter.during(() => exec("$dbUserCooldown[cd;1h;wait]"))).count, 1, "running, again")
     assert.equal((await counter.during(() => run("$dbGetUserCooldownTime[cd]"))).count, 1)
     assert.equal((await counter.during(() => run("$dbDeleteUserCooldown[cd]"))).count, 1)
+    // Deleted: free again, one statement (a plain number is a duration in ms).
+    assert.equal((await counter.during(() => run("$dbUserCooldown[cd;100]"))).count, start, "start after a delete")
+    // Run out: free again, one statement.
+    await new Promise((r) => setTimeout(r, 150))
+    assert.equal((await counter.during(() => run("$dbUserCooldown[cd;1h]"))).count, start, "start after it ran out")
+    // Started by someone else (another process, a raw query): the guess is
+    // wrong, which costs one more statement, never a wrong answer.
+    await DB.cdAdd({ name: "other", id: ids.user, duration: 3_600_000 })
+    DB.clearCache() // as if another process had added it
+    let output
+    const stolen = await counter.during(async () => (output = (await exec("$dbUserCooldown[other;1h;wait]")).output))
+    assert.equal(stolen.count, kind === "mysql" ? 1 : 2)
+    assert.equal(output, null, "the claim did not pass")
+    await DB.cdWipe()
 })
 
 test("a leaderboard command scans the variable once, however many functions it uses", async () => {
@@ -89,6 +107,33 @@ test("concurrent writes to the same new variable all succeed", async () => {
     await Promise.all(Array.from({ length: 100 }, (_, i) => run(`$setUserVar[race2;${i};${snowflake(i % 10)}]`)))
     assert.equal((await DB.find({ name: "race2" })).length, 10)
     await DB.wipe()
+})
+
+test("a claim that loses a race never reports a cooldown as started that is not", async () => {
+    // Another process starts the cooldown between this claim's statements,
+    // then deletes it before this claim reads the time left. 3.0.0 answered 0
+    // ("started") although nothing was stored, so the command passed without
+    // a cooldown.
+    const identifier = DB.make_cdIdentifier({ name: "raced", id: ids.user })
+    const restore = []
+    for (const method of ["claimFirst", "claimInDatabase"]) {
+        const original = DB[method]
+        if (typeof original !== "function") continue
+        restore.push(() => (DB[method] = original))
+        DB[method] = async () => {
+            for (const undo of restore) undo()
+            return false // lost to the other process, whose cooldown is gone again
+        }
+    }
+    try {
+        const left = await DB.cdClaim({ name: "raced", id: ids.user, duration: 3_600_000 })
+        const stored = await DB.cdTimeLeft(identifier)
+        if (left === 0) assert.ok(stored.left > 0, "answered 'started', so the cooldown must be running")
+        else assert.ok(left > 0)
+    } finally {
+        for (const undo of restore) undo()
+        await DB.cdWipe()
+    }
 })
 
 test("concurrent claims of one cooldown: exactly one gets through", async () => {

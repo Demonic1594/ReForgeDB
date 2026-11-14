@@ -61,6 +61,12 @@ interface Statements {
     claimExpiredCooldown: string
     /** Starts a cooldown only if no row exists (params: the cooldown columns). */
     claimNewCooldown: string
+    /**
+     * Starts a cooldown if no row exists or it has run out, in one statement
+     * (params: the cooldown columns). `null` where the database has no
+     * conditional upsert with a usable row count (MySQL, MariaDB).
+     */
+    claimCooldown: string | null
     /** `id` and `value` of every row of a name and type. */
     scan: string
     /** The same, for one guild. */
@@ -120,6 +126,17 @@ function buildStatements(db: DataSource, record: Function, cooldown: Function): 
         kind === "mysql"
             ? `INSERT IGNORE INTO ${c.name} (${cooldownCols}) VALUES (${cooldownParams})`
             : `INSERT INTO ${c.name} (${cooldownCols}) VALUES (${cooldownParams}) ON CONFLICT (${c.col("identifier")}) DO NOTHING`
+    // SQLite and PostgreSQL: insert, or take over the row only if it has run
+    // out; the row count says whether this statement started the cooldown.
+    // MySQL's ON DUPLICATE KEY UPDATE cannot tell "updated" from "left as it
+    // was" reliably (CLIENT_FOUND_ROWS), so it keeps the read-first claim.
+    const cur = d.escape("cur")
+    const claimCooldown =
+        kind === "mysql"
+            ? null
+            : `INSERT INTO ${c.name} AS ${cur} (${cooldownCols}) VALUES (${cooldownParams}) ON CONFLICT (${c.col("identifier")}) DO UPDATE SET ` +
+              ["name", "id", "startedAt", "duration"].map((k) => `${c.col(k)} = EXCLUDED.${c.col(k)}`).join(", ") +
+              ` WHERE ${cur}.${c.col("startedAt")} + ${cur}.${c.col("duration")} <= EXCLUDED.${c.col("startedAt")}`
     return {
         getRecord: r.get,
         upsertRecord: r.upsert,
@@ -127,6 +144,7 @@ function buildStatements(db: DataSource, record: Function, cooldown: Function): 
         upsertCooldown: c.upsert,
         claimExpiredCooldown,
         claimNewCooldown,
+        claimCooldown,
         scan,
         scanGuild: `${scan} AND ${r.col("guildId")} = ${r.param(2)}`,
     }
@@ -283,6 +301,13 @@ export class DataBase extends DataBaseManager {
     private static entities: { Record: AnyRecord; Cooldown: AnyCooldown } = { Record: SQLiteRecord, Cooldown }
     private static db: DataSource | null = null
     private static sql: Statements | null = null
+    /**
+     * When each cooldown this process saw runs out (ms since epoch). Only a
+     * guess of whether a claim will pass, used to pick the statement that
+     * likely decides it in one round trip; the database still decides every
+     * claim, so a stale guess costs a round trip, never a wrong answer.
+     */
+    private static cooldownHints = new Map<string, number>()
     private static emitter: Emitter | null = null
     private static settings: Settings = { ...DEFAULT_SETTINGS }
     private static fatal: ReForgeDBError | null = null
@@ -843,17 +868,29 @@ export class DataBase extends DataBaseManager {
         const duration = DataBase.checkDuration(data.duration)
         const identifier = DataBase.make_cdIdentifier(data)
         const cd = { identifier, name: data.name, id: data.id, startedAt: Date.now(), duration }
-        return DataBase.op("cooldown add", identifier, async (db) => {
+        const result = await DataBase.op("cooldown add", identifier, async (db) => {
             if (DataBase.mongo) await db.getMongoRepository(DataBase.entities.Cooldown).updateOne({ identifier }, { $set: defined(cd) }, { upsert: true })
             else if (DataBase.sql) await db.query(DataBase.sql.upsertCooldown, row(cd, COOLDOWN_COLUMNS))
             else await DataBase.cooldowns(db).upsert(cd, { conflictPaths: ["identifier"], skipUpdateIfNoValuesChanged: false })
             return cd
         })
+        DataBase.hint(identifier, cd.startedAt + cd.duration)
+        return result
     }
 
     /** Ends a cooldown. */
     public static async cdDelete(identifier: string) {
+        DataBase.cooldownHints.delete(identifier)
         await DataBase.op("cooldown delete", identifier, (db) => DataBase.cooldowns(db).delete({ identifier }))
+        DataBase.cooldownHints.delete(identifier)
+    }
+
+    /** Remembers when a cooldown runs out, at most 10,000 of them (the oldest are forgotten first). */
+    private static hint(identifier: string, endsAt: number | null) {
+        DataBase.cooldownHints.delete(identifier)
+        if (endsAt === null) return
+        DataBase.cooldownHints.set(identifier, endsAt)
+        if (DataBase.cooldownHints.size > 10_000) DataBase.cooldownHints.delete(DataBase.cooldownHints.keys().next().value!)
     }
 
     /** The stored cooldown with `left` (ms remaining, `0` when none or expired). */
@@ -862,9 +899,13 @@ export class DataBase extends DataBaseManager {
             const data = DataBase.sql
                 ? (((await db.query(DataBase.sql.getCooldown, [identifier])) as Cooldown[])[0] ?? null)
                 : ((await DataBase.cooldowns(db).findOneBy({ identifier })) as Cooldown | null)
-            if (!data) return { left: 0 }
+            if (!data) {
+                DataBase.hint(identifier, null)
+                return { left: 0 }
+            }
             const startedAt = Number(data.startedAt)
             const duration = Number(data.duration)
+            DataBase.hint(identifier, startedAt + duration)
             return { ...data, startedAt, duration, left: Math.max(duration - (Date.now() - startedAt), 0) }
         })
     }
@@ -881,14 +922,68 @@ export class DataBase extends DataBaseManager {
         // Claims in this process queue up here, so they do not race in the
         // database for nothing. Across processes the write below decides.
         return DataBase.locks.run(`cooldown\u0000${identifier}`, async () => {
-            const current = await DataBase.cdTimeLeft(identifier)
-            if (current.left > 0) return current.left
-            const cd = { identifier, name: data.name, id: data.id, startedAt: Date.now(), duration }
-            const claimed = await DataBase.op("cooldown claim", identifier, (db) => DataBase.claimInDatabase(db, cd, current.identifier !== undefined))
-            if (claimed) return 0
-            // Another process started it between the read and the write.
-            return (await DataBase.cdTimeLeft(identifier)).left
+            // Each claim costs one round trip when the guess below is right:
+            // a cooldown that is likely running is read (and the claim ends
+            // there), one that is likely free is claimed with one write. A
+            // wrong guess costs one more round trip. A few attempts cover a
+            // cooldown that runs out, or is deleted, between two statements.
+            for (let attempt = 0; ; attempt++) {
+                const endsAt = DataBase.cooldownHints.get(identifier)
+                const likelyFree = DataBase.canClaimFirst && (endsAt === undefined || endsAt <= Date.now())
+                if (likelyFree) {
+                    const cd = { identifier, name: data.name, id: data.id, startedAt: Date.now(), duration }
+                    if (await DataBase.op("cooldown claim", identifier, (db) => DataBase.claimFirst(db, cd))) {
+                        DataBase.hint(identifier, cd.startedAt + cd.duration)
+                        return 0
+                    }
+                    const left = (await DataBase.cdTimeLeft(identifier)).left
+                    if (left > 0 || attempt >= 2) return Math.max(left, 1)
+                    continue
+                }
+                const current = await DataBase.cdTimeLeft(identifier)
+                if (current.left > 0) return current.left
+                const cd = { identifier, name: data.name, id: data.id, startedAt: Date.now(), duration }
+                if (await DataBase.op("cooldown claim", identifier, (db) => DataBase.claimInDatabase(db, cd, current.identifier !== undefined))) {
+                    DataBase.hint(identifier, cd.startedAt + cd.duration)
+                    return 0
+                }
+                // Another process started it between the read and the write.
+                const left = (await DataBase.cdTimeLeft(identifier)).left
+                // A claim that did not start the cooldown never answers 0 ("started").
+                if (left > 0 || attempt >= 2) return Math.max(left, 1)
+            }
         })
+    }
+
+    /** Whether a claim can be decided by one write on this database. */
+    private static get canClaimFirst(): boolean {
+        return DataBase.mongo || !!DataBase.sql?.claimCooldown
+    }
+
+    /**
+     * Starts a cooldown with one write if it does not exist or has run out.
+     * `true` when this call started it, `false` when it was running.
+     */
+    private static async claimFirst(db: DataSource, cd: { identifier: string; name: string; id?: string; startedAt: number; duration: number }): Promise<boolean> {
+        if (DataBase.mongo) {
+            const expired = { $expr: { $lte: [{ $add: ["$startedAt", "$duration"] }, cd.startedAt] } }
+            try {
+                // Matches only a cooldown that has run out; with none, the upsert
+                // inserts, which the unique index refuses while one is running.
+                await db.getMongoRepository(DataBase.entities.Cooldown).updateOne({ identifier: cd.identifier, ...expired }, { $set: defined(cd) }, { upsert: true })
+                return true
+            } catch (err) {
+                if ((err as { code?: number })?.code === 11000) return false
+                throw err
+            }
+        }
+        const runner = db.createQueryRunner()
+        try {
+            const result = await runner.query(DataBase.sql!.claimCooldown!, row(cd, COOLDOWN_COLUMNS), true)
+            return (result.affected ?? 0) > 0
+        } finally {
+            await runner.release()
+        }
     }
 
     /**
@@ -930,7 +1025,10 @@ export class DataBase extends DataBaseManager {
 
     /** Deletes every cooldown. */
     public static async cdWipe() {
-        return DataBase.op("wipe", "cooldowns", async (db) => (DataBase.mongo ? db.getMongoRepository(DataBase.entities.Cooldown).deleteMany({}) : DataBase.cooldowns(db).clear()))
+        DataBase.cooldownHints.clear()
+        const result = await DataBase.op("wipe", "cooldowns", async (db) => (DataBase.mongo ? db.getMongoRepository(DataBase.entities.Cooldown).deleteMany({}) : DataBase.cooldowns(db).clear()))
+        DataBase.cooldownHints.clear()
+        return result
     }
 
     /** Deletes cooldowns that have run out. Returns how many were deleted. */
@@ -1009,6 +1107,7 @@ export class DataBase extends DataBaseManager {
         DataBase.touch()
         DataBase.readCache?.clear()
         DataBase.boards.clear()
+        DataBase.cooldownHints.clear()
     }
 
     /** Closes the connection and stops background work (retries, cooldown sweep). */
@@ -1022,6 +1121,7 @@ export class DataBase extends DataBaseManager {
         DataBase.sql = null
         DataBase.readCache?.clear()
         DataBase.boards.clear()
+        DataBase.cooldownHints.clear()
         await DataBaseManager.closeAll()
     }
 }

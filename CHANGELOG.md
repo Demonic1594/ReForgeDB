@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.1.0 (ReForgeDB, November 2026)
+
+Faster cooldown claims, one fix in them, and tests for switching between the two SQLite drivers. Nothing to migrate.
+
+### Performance
+- **A cooldown claim is one statement**, whether it starts the cooldown or finds it running (3.0.0: a read, plus a write when it started it). ReForgeDB remembers when each cooldown it saw runs out and picks the statement that likely decides the claim: a conditional write (`INSERT ... ON CONFLICT DO UPDATE ... WHERE` it has run out; on MongoDB an upsert the unique index refuses while one runs) when it is probably free, a read when it is probably running. The database still decides every claim, so a wrong guess costs one more statement, never a wrong answer. MySQL and MariaDB keep the read and the conditional write when starting a cooldown: their `ON DUPLICATE KEY UPDATE` cannot report reliably whether it changed the row.
+- Measured with `$dbUserCooldown` on PostgreSQL 16, 5 ms away in each direction, 150 users: starting a cooldown 24.0-24.6 ms (3.0.0) → 12.8-13.0 ms; finding it running 11.7-11.8 ms → 11.8-11.9 ms.
+
+### Fixed
+- **A claim that lost a race could report a cooldown as started that was not.** When another process started the cooldown between the claim's two statements and it was gone again (deleted, or a very short one) before the claim read the time left, the claim answered "started": the command ran and no cooldown was stored. A claim that did not start the cooldown now tries again, and never answers "started" without it.
+
+### Tests
+- `test/driver.test.js`: a database written with one SQLite driver is read the same by the other, in both directions (every scope, odd values, values that look like SQL, a leaderboard, running cooldowns); the schema is left as it is; 8 switches back and forth with the write-ahead log off and on; a crash (`kill -9`) with one driver, read by the other; a file that is not a database is reported and never overwritten; a missing driver package is named and no file is created; a file locked by another program fails with a catchable error after the 5 s busy timeout and works again afterwards; four processes on both drivers writing one file at once, with every cooldown claimed exactly once.
+- 144 tests on SQLite (129 before), 116 on PostgreSQL, MariaDB and MySQL (114), 117 on MongoDB (115).
+- `better-sqlite3` is a development dependency, so `npm install` brings both drivers for the tests. Nothing changes for bots that install ReForgeDB.
+
+### Documentation
+- A section on switching between `sqlite` and `better-sqlite3`, with a warning found by these tests: never open the database file with the other driver in the same process. Each driver brings its own copy of SQLite, and two copies in one process do not see each other's locks.
+
 ## 3.0.0 (ReForgeDB, November 2026)
 
 The first release of ReForgeDB, a fork of [ForgeDB](https://github.com/tryforge/ForgeDB) 2.1.1 (commit `0f9c251`). A review of every function and of the storage layer: each fix below has a test, and the bugs were reproduced on ForgeDB 2.1.1 first. [Upgrade notes](README.md#switching-from-forgedb).
