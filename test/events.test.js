@@ -81,14 +81,26 @@ test("deleting a variable that does not exist emits nothing", async () => {
 })
 
 test("the event is emitted after the write: a listener reads the new state", async () => {
+    // Each listener reads the variable back. The next write waits for that
+    // read: on a database with a connection pool the read and a following
+    // write could otherwise finish in either order.
     const seen = []
-    const onCreate = async ({ data }) => seen.push(["create", (await DB.get({ identifier: data.identifier }))?.value])
-    const onUpdate = async ({ newData }) => seen.push(["update", (await DB.get({ identifier: newData.identifier }))?.value])
-    const onDelete = async ({ data }) => seen.push(["delete", await DB.get({ identifier: data.identifier })])
+    let pending = []
+    const read = (label, identifier, pick) => pending.push(DB.get({ identifier }).then((r) => seen.push([label, pick(r)])))
+    const onCreate = ({ data }) => read("create", data.identifier, (r) => r?.value)
+    const onUpdate = ({ newData }) => read("update", newData.identifier, (r) => r?.value)
+    const onDelete = ({ data }) => read("delete", data.identifier, (r) => r)
     h.extension.emitter.on("variableCreate", onCreate).on("variableUpdate", onUpdate).on("variableDelete", onDelete)
-    await run("$setGlobalVar[order;1]$setGlobalVar[order;2]$deleteGlobalVar[order]")
-    await new Promise((r) => setTimeout(r, 50))
-    h.extension.emitter.off("variableCreate", onCreate).off("variableUpdate", onUpdate).off("variableDelete", onDelete)
+    try {
+        for (const code of ["$setGlobalVar[order;1]", "$setGlobalVar[order;2]", "$deleteGlobalVar[order]"]) {
+            await run(code)
+            assert.equal(pending.length, 1, `one event for ${code}`)
+            await Promise.all(pending)
+            pending = []
+        }
+    } finally {
+        h.extension.emitter.off("variableCreate", onCreate).off("variableUpdate", onUpdate).off("variableDelete", onDelete)
+    }
     // ForgeDB emitted before writing: listeners saw undefined, "1" and the still-present row.
     assert.deepEqual(seen, [
         ["create", "1"],
