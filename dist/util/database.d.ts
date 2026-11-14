@@ -1,11 +1,11 @@
 import "reflect-metadata";
 import { DataSource, DeleteResult } from "typeorm";
 import { TypedEmitter } from "tiny-typed-emitter";
-import type { IDBEvents } from "../structures";
+import type { IReForgeDBEvents } from "../structures";
 import type { TransformEvents } from "..";
 import { DataBaseManager, EntityList } from "./databaseManager";
 import { Cooldown, DriverKind, IReForgeDBOptions, MongoCooldown, MongoRecord, MySQLRecord, PostgreSQLRecord, RecordData, RecordType, SQLCooldown, SQLiteRecord, StoredRecord } from "./types";
-type Emitter = TypedEmitter<TransformEvents<IDBEvents>>;
+type Emitter = TypedEmitter<TransformEvents<IReForgeDBEvents>>;
 export interface SearchFilter {
     /** `LIKE` pattern for the variable name (`%` any text, `_` one character). */
     name?: string;
@@ -73,7 +73,10 @@ export declare function resolveSettings(options: IReForgeDBOptions | undefined):
  * `ReForgeDBError` with the driver's message.
  */
 export declare class DataBase extends DataBaseManager {
+    /** The SQLite file, in the `folder` option (`database/reforge.db` by default). */
     database: string;
+    /** ForgeDB's file name: renamed to `reforge.db` on first start. */
+    previousDatabase: string;
     entityManager: {
         sqlite: (typeof SQLiteRecord | typeof Cooldown)[];
         mongodb: (typeof MongoRecord | typeof MongoCooldown)[];
@@ -102,6 +105,13 @@ export declare class DataBase extends DataBaseManager {
     /** Applies the options of `new ReForgeDB()`. */
     private static configure;
     protected fallbackEntities(kind: DriverKind, error: unknown): EntityList | undefined;
+    /**
+     * MongoDB: removes duplicate documents of one key before the unique key
+     * indexes are built. ForgeDB read and then wrote, so two first writes at
+     * the same moment could both insert. The document kept is the first one
+     * in the collection's natural order: the one ForgeDB read and updated.
+     */
+    protected beforeSynchronize(db: DataSource): Promise<void>;
     /**
      * Connects, retrying with backoff (1 s, doubling up to 60 s) while the
      * database is unreachable. Never rejects: functions wait for the
@@ -238,6 +248,12 @@ export declare class DataBase extends DataBaseManager {
     static query(query: string, parameters?: unknown[]): Promise<any>;
     /** Round trip to the database in ms. */
     static ping(): Promise<number>;
+    /**
+     * Forgets the cached variables and leaderboards, so the next reads go to
+     * the database. Use it after changing the database outside ReForgeDB (a
+     * script, a dashboard) when the `cache` option is on.
+     */
+    static clearCache(): void;
     /** Closes the connection and stops background work (retries, cooldown sweep). */
     static close(): Promise<void>;
 }

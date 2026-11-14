@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "async_hooks"
 import { CompiledFunction, Context, IExtendedCompiledFunctionField, Interpreter, Return } from "@tryforge/forgescript"
 import { DataBase } from "./database"
-import { DBLogger, errorMessage, ReForgeDBError } from "./logger"
+import { ReForgeDBLogger, errorMessage, ReForgeDBError } from "./logger"
 import { RecordData, RecordType, VariableType } from "./types"
 
 /*
@@ -67,8 +67,8 @@ function logFailure(line: string, cause: unknown) {
     }
     if (lastLogged.size > 500) lastLogged.clear()
     lastLogged.set(line, { at: now, skipped: 0 })
-    DBLogger.error(seen?.skipped ? `${line} (and ${seen.skipped} more times)` : line)
-    if (cause) DBLogger.debug(cause)
+    ReForgeDBLogger.error(seen?.skipped ? `${line} (and ${seen.skipped} more times)` : line)
+    if (cause) ReForgeDBLogger.debug(cause)
 }
 
 /**
@@ -87,7 +87,7 @@ export async function guarded(fn: Fn, body: () => Promise<Return> | Return): Pro
     } catch (err) {
         const message = errorMessage(err)
         const line = `${fn.data.name}: ${message}`
-        if (err instanceof ReForgeDBError && !err.cause) DBLogger.debug(line)
+        if (err instanceof ReForgeDBError && !err.cause) ReForgeDBLogger.debug(line)
         else logFailure(line, err instanceof ReForgeDBError ? err.cause : err)
         return fn.customError(`[ReForgeDB] ${message}`)
     }

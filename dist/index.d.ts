@@ -1,7 +1,7 @@
 import { ForgeClient, ForgeExtension, IExtendedCompilationResult } from "@tryforge/forgescript";
 import { TypedEmitter } from "tiny-typed-emitter";
 import { IReForgeDBOptions } from "./util";
-import { DBCommandManager, IDBEvents } from "./structures";
+import { ReForgeDBCommandManager, IReForgeDBEvents } from "./structures";
 export type TransformEvents<T> = {
     [P in keyof T]: T[P] extends any[] ? (...args: T[P]) => any : never;
 };
@@ -25,8 +25,8 @@ export declare class ReForgeDB extends ForgeExtension {
     name: string;
     description: string;
     version: string;
-    commands: DBCommandManager;
-    emitter: TypedEmitter<TransformEvents<IDBEvents>>;
+    commands: ReForgeDBCommandManager;
+    emitter: TypedEmitter<TransformEvents<IReForgeDBEvents>>;
     constructor(options?: IReForgeDBOptions | undefined);
     init(client: ForgeClient): void;
     /** Resolves once the database is connected (rejects after `timeout` ms). */
@@ -54,8 +54,8 @@ export declare class ReForgeDB extends ForgeExtension {
         value: unknown;
     } | undefined;
 }
-export { DataBaseManager, DataBase, Leaderboard, ReForgeDBError, DBLogger } from "./util";
+export { DataBaseManager, DataBase, Leaderboard, ReForgeDBError, ReForgeDBLogger } from "./util";
 export type { IReForgeDBOptions, IDataBaseOptions, LogLevel, SearchFilter, LeaderboardQuery, LeaderboardEntry, StoredRecord, RecordData } from "./util";
 export { EVENT_HANDLER_NAME } from "./structures";
-export type { IDBEvents } from "./structures";
+export type { IReForgeDBEvents } from "./structures";
 //# sourceMappingURL=index.d.ts.map

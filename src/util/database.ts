@@ -2,10 +2,10 @@ import "reflect-metadata"
 import { performance } from "perf_hooks"
 import { DataSource, DeleteResult, FindOperator, In, Like, ObjectLiteral, Repository } from "typeorm"
 import { TypedEmitter } from "tiny-typed-emitter"
-import type { IDBEvents } from "../structures"
+import type { IReForgeDBEvents } from "../structures"
 import type { TransformEvents } from ".."
 import { DataBaseManager, EntityList } from "./databaseManager"
-import { DBLogger, errorMessage, isLogLevel, ReForgeDBError } from "./logger"
+import { ReForgeDBLogger, errorMessage, isLogLevel, ReForgeDBError } from "./logger"
 import { chunk, compareIds, KeyedMutex, likeToRegExp, LRUCache, rankValue } from "./primitives"
 import {
     Cooldown,
@@ -27,7 +27,7 @@ import {
 
 type AnyRecord = typeof SQLiteRecord | typeof MongoRecord | typeof MySQLRecord | typeof PostgreSQLRecord | typeof MySQLRecordWithoutIndex
 type AnyCooldown = typeof MongoCooldown | typeof Cooldown | typeof SQLCooldown
-type Emitter = TypedEmitter<TransformEvents<IDBEvents>>
+type Emitter = TypedEmitter<TransformEvents<IReForgeDBEvents>>
 
 /** Longest key MySQL can store in ForgeDB's `varchar(255)` columns. */
 const MYSQL_MAX_KEY = 255
@@ -244,7 +244,10 @@ export function resolveSettings(options: IReForgeDBOptions | undefined): Setting
  * `ReForgeDBError` with the driver's message.
  */
 export class DataBase extends DataBaseManager {
-    public database = "forge.db"
+    /** The SQLite file, in the `folder` option (`database/reforge.db` by default). */
+    public database = "reforge.db"
+    /** ForgeDB's file name: renamed to `reforge.db` on first start. */
+    public override previousDatabase = "forge.db"
     public entityManager = {
         sqlite: [SQLiteRecord, Cooldown],
         mongodb: [MongoRecord, MongoCooldown],
@@ -281,7 +284,7 @@ export class DataBase extends DataBaseManager {
     /** Applies the options of `new ReForgeDB()`. */
     private static configure(options: IReForgeDBOptions | undefined) {
         DataBase.settings = resolveSettings(options)
-        if (options?.logLevel) DBLogger.level = options.logLevel
+        if (options?.logLevel) ReForgeDBLogger.level = options.logLevel
         const c = DataBase.settings.cache
         DataBase.readCache = c ? new LRUCache(c.max, c.ttl) : null
         DataBase.boards = new LRUCache(200, DataBase.settings.leaderboardCacheTTL)
@@ -290,10 +293,29 @@ export class DataBase extends DataBaseManager {
     protected override fallbackEntities(kind: DriverKind, error: unknown): EntityList | undefined {
         const e = error as { code?: string; errno?: number }
         if (kind === "mysql" && (e?.code === "ER_TOO_LONG_KEY" || e?.errno === 1071)) {
-            DBLogger.warn("This MySQL server cannot index the variable names (keys are limited to 767 bytes). Leaderboards and searches will scan the table.")
+            ReForgeDBLogger.warn("This MySQL server cannot index the variable names (keys are limited to 767 bytes). Leaderboards and searches will scan the table.")
             return [MySQLRecordWithoutIndex, SQLCooldown]
         }
         return undefined
+    }
+
+    /**
+     * MongoDB: removes duplicate documents of one key before the unique key
+     * indexes are built. ForgeDB read and then wrote, so two first writes at
+     * the same moment could both insert. The document kept is the first one
+     * in the collection's natural order: the one ForgeDB read and updated.
+     */
+    protected override async beforeSynchronize(db: DataSource) {
+        if (driverKind(db.options.type) !== "mongodb") return
+        for (const target of [MongoRecord, MongoCooldown]) {
+            const groups = (await db.mongoManager
+                .aggregate(target, [{ $group: { _id: "$identifier", ids: { $push: "$_id" }, n: { $sum: 1 } } }, { $match: { n: { $gt: 1 } } }], { allowDiskUse: true })
+                .toArray()) as Array<{ _id: string; ids: unknown[] }>
+            if (!groups.length) continue
+            const extra = groups.flatMap((g) => g.ids.slice(1))
+            for (const part of chunk(extra, DELETE_BATCH)) await db.mongoManager.deleteMany(target, { _id: { $in: part } } as never)
+            ReForgeDBLogger.warn(`Removed ${extra.length} duplicate document(s) of ${groups.length} key(s) from ${db.getMetadata(target).tableName}, keeping the first of each`)
+        }
     }
 
     /**
@@ -312,8 +334,8 @@ export class DataBase extends DataBaseManager {
                 }
                 DataBase.attach(db)
                 const type = db.options.type
-                if (attempt) DBLogger.info(`Connected to ${type} after ${attempt + 1} attempts`)
-                else DBLogger.info(`Connected to ${type}`)
+                if (attempt) ReForgeDBLogger.info(`Connected to ${type} after ${attempt + 1} attempts`)
+                else ReForgeDBLogger.info(`Connected to ${type}`)
                 DataBase.emit("connect")
                 return
             } catch (err) {
@@ -321,12 +343,12 @@ export class DataBase extends DataBaseManager {
                 const name = (err as Error)?.name
                 if (FATAL_CONNECT_ERRORS.has(name) || err instanceof ReForgeDBError) {
                     DataBase.fail(new ReForgeDBError(`Cannot use the database: ${errorMessage(err)}`, err))
-                    DBLogger.error(`Cannot use the database: ${errorMessage(err)}`)
+                    ReForgeDBLogger.error(`Cannot use the database: ${errorMessage(err)}`)
                     return
                 }
                 const wait = Math.min(1000 * 2 ** attempt, 60_000)
-                DBLogger.error(`Could not connect to the database (attempt ${attempt + 1}), retrying in ${wait / 1000}s: ${errorMessage(err)}`)
-                DBLogger.debug(err)
+                ReForgeDBLogger.error(`Could not connect to the database (attempt ${attempt + 1}), retrying in ${wait / 1000}s: ${errorMessage(err)}`)
+                ReForgeDBLogger.debug(err)
                 await new Promise<void>((resolve) => {
                     DataBase.wakeRetry = resolve
                     DataBase.retryTimer = setTimeout(resolve, wait)
@@ -351,7 +373,7 @@ export class DataBase extends DataBaseManager {
         } catch (err) {
             // Slower, but always correct: go through TypeORM's repositories.
             DataBase.sql = null
-            DBLogger.debug("Could not prepare the fast statements, using repositories:", err)
+            ReForgeDBLogger.debug("Could not prepare the fast statements, using repositories:", err)
         }
         for (const w of DataBase.waiters) w.resolve()
         DataBase.waiters.clear()
@@ -434,12 +456,12 @@ export class DataBase extends DataBaseManager {
             const result = await run(db)
             const ms = performance.now() - started
             const slow = DataBase.settings.slowQueryThreshold
-            if (slow > 0 && ms >= slow) DBLogger.warn(`Slow ${label} (${detail}): ${ms.toFixed(1)} ms`)
-            else if (DBLogger.enabled("debug")) DBLogger.debug(`${label} ${detail} (${ms.toFixed(2)} ms)`)
+            if (slow > 0 && ms >= slow) ReForgeDBLogger.warn(`Slow ${label} (${detail}): ${ms.toFixed(1)} ms`)
+            else if (ReForgeDBLogger.enabled("debug")) ReForgeDBLogger.debug(`${label} ${detail} (${ms.toFixed(2)} ms)`)
             return result
         } catch (err) {
             if (err instanceof ReForgeDBError) throw err
-            DBLogger.debug(`${label} ${detail} failed after ${(performance.now() - started).toFixed(1)} ms:`, err)
+            ReForgeDBLogger.debug(`${label} ${detail} failed after ${(performance.now() - started).toFixed(1)} ms:`, err)
             throw new ReForgeDBError(`${label} failed: ${errorMessage(err)}`, err)
         }
     }
@@ -453,16 +475,16 @@ export class DataBase extends DataBaseManager {
         return DataBase.readCache ? DataBase.locks.run(`record\u0000${identifier}`, task) : task()
     }
 
-    private static listening(event: keyof IDBEvents) {
+    private static listening(event: keyof IReForgeDBEvents) {
         return (DataBase.emitter?.listenerCount(event) ?? 0) > 0
     }
 
     /** Emits an event; a listener that throws is logged, never breaks the write. */
-    private static emit<K extends keyof IDBEvents>(event: K, ...args: IDBEvents[K]) {
+    private static emit<K extends keyof IReForgeDBEvents>(event: K, ...args: IReForgeDBEvents[K]) {
         try {
             ;(DataBase.emitter as unknown as { emit(e: string, ...a: unknown[]): boolean } | null)?.emit(event, ...args)
         } catch (err) {
-            DBLogger.error(`A ${event} listener threw:`, err)
+            ReForgeDBLogger.error(`A ${event} listener threw:`, err)
         }
     }
 
@@ -570,7 +592,7 @@ export class DataBase extends DataBaseManager {
         const identifier = data.identifier ?? DataBase.make_intetifier(data)
         const hit = DataBase.readCache?.get(identifier)
         if (hit) {
-            DBLogger.trace(`get ${identifier} (cache)`)
+            ReForgeDBLogger.trace(`get ${identifier} (cache)`)
             return hit.value ? DataBase.entity(hit.value) : null
         }
         const seq = DataBase.writeSeq
@@ -819,8 +841,8 @@ export class DataBase extends DataBaseManager {
         if (!every) return
         const sweep = () =>
             DataBase.sweepCooldowns()
-                .then((n) => n && DBLogger.debug(`Deleted ${n} expired cooldown(s)`))
-                .catch((err) => DBLogger.warn(`Could not delete expired cooldowns: ${errorMessage(err)}`))
+                .then((n) => n && ReForgeDBLogger.debug(`Deleted ${n} expired cooldown(s)`))
+                .catch((err) => ReForgeDBLogger.warn(`Could not delete expired cooldowns: ${errorMessage(err)}`))
         DataBase.sweeper = setInterval(sweep, every)
         DataBase.sweeper.unref?.()
         setTimeout(sweep, Math.min(every, 5000)).unref?.()
@@ -858,6 +880,17 @@ export class DataBase extends DataBaseManager {
             throw new ReForgeDBError(`ping failed: ${errorMessage(err)}`, err)
         }
         return performance.now() - started
+    }
+
+    /**
+     * Forgets the cached variables and leaderboards, so the next reads go to
+     * the database. Use it after changing the database outside ReForgeDB (a
+     * script, a dashboard) when the `cache` option is on.
+     */
+    public static clearCache() {
+        DataBase.touch()
+        DataBase.readCache?.clear()
+        DataBase.boards.clear()
     }
 
     /** Closes the connection and stops background work (retries, cooldown sweep). */

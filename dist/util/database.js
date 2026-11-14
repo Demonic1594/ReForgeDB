@@ -171,7 +171,10 @@ function resolveSettings(options) {
  * `ReForgeDBError` with the driver's message.
  */
 class DataBase extends databaseManager_1.DataBaseManager {
-    database = "forge.db";
+    /** The SQLite file, in the `folder` option (`database/reforge.db` by default). */
+    database = "reforge.db";
+    /** ForgeDB's file name: renamed to `reforge.db` on first start. */
+    previousDatabase = "forge.db";
     entityManager = {
         sqlite: [types_1.SQLiteRecord, types_1.Cooldown],
         mongodb: [types_1.MongoRecord, types_1.MongoCooldown],
@@ -205,7 +208,7 @@ class DataBase extends databaseManager_1.DataBaseManager {
     static configure(options) {
         DataBase.settings = resolveSettings(options);
         if (options?.logLevel)
-            logger_1.DBLogger.level = options.logLevel;
+            logger_1.ReForgeDBLogger.level = options.logLevel;
         const c = DataBase.settings.cache;
         DataBase.readCache = c ? new primitives_1.LRUCache(c.max, c.ttl) : null;
         DataBase.boards = new primitives_1.LRUCache(200, DataBase.settings.leaderboardCacheTTL);
@@ -213,10 +216,31 @@ class DataBase extends databaseManager_1.DataBaseManager {
     fallbackEntities(kind, error) {
         const e = error;
         if (kind === "mysql" && (e?.code === "ER_TOO_LONG_KEY" || e?.errno === 1071)) {
-            logger_1.DBLogger.warn("This MySQL server cannot index the variable names (keys are limited to 767 bytes). Leaderboards and searches will scan the table.");
+            logger_1.ReForgeDBLogger.warn("This MySQL server cannot index the variable names (keys are limited to 767 bytes). Leaderboards and searches will scan the table.");
             return [types_1.MySQLRecordWithoutIndex, types_1.SQLCooldown];
         }
         return undefined;
+    }
+    /**
+     * MongoDB: removes duplicate documents of one key before the unique key
+     * indexes are built. ForgeDB read and then wrote, so two first writes at
+     * the same moment could both insert. The document kept is the first one
+     * in the collection's natural order: the one ForgeDB read and updated.
+     */
+    async beforeSynchronize(db) {
+        if ((0, types_1.driverKind)(db.options.type) !== "mongodb")
+            return;
+        for (const target of [types_1.MongoRecord, types_1.MongoCooldown]) {
+            const groups = (await db.mongoManager
+                .aggregate(target, [{ $group: { _id: "$identifier", ids: { $push: "$_id" }, n: { $sum: 1 } } }, { $match: { n: { $gt: 1 } } }], { allowDiskUse: true })
+                .toArray());
+            if (!groups.length)
+                continue;
+            const extra = groups.flatMap((g) => g.ids.slice(1));
+            for (const part of (0, primitives_1.chunk)(extra, DELETE_BATCH))
+                await db.mongoManager.deleteMany(target, { _id: { $in: part } });
+            logger_1.ReForgeDBLogger.warn(`Removed ${extra.length} duplicate document(s) of ${groups.length} key(s) from ${db.getMetadata(target).tableName}, keeping the first of each`);
+        }
     }
     /**
      * Connects, retrying with backoff (1 s, doubling up to 60 s) while the
@@ -235,9 +259,9 @@ class DataBase extends databaseManager_1.DataBaseManager {
                 DataBase.attach(db);
                 const type = db.options.type;
                 if (attempt)
-                    logger_1.DBLogger.info(`Connected to ${type} after ${attempt + 1} attempts`);
+                    logger_1.ReForgeDBLogger.info(`Connected to ${type} after ${attempt + 1} attempts`);
                 else
-                    logger_1.DBLogger.info(`Connected to ${type}`);
+                    logger_1.ReForgeDBLogger.info(`Connected to ${type}`);
                 DataBase.emit("connect");
                 return;
             }
@@ -246,12 +270,12 @@ class DataBase extends databaseManager_1.DataBaseManager {
                 const name = err?.name;
                 if (FATAL_CONNECT_ERRORS.has(name) || err instanceof logger_1.ReForgeDBError) {
                     DataBase.fail(new logger_1.ReForgeDBError(`Cannot use the database: ${(0, logger_1.errorMessage)(err)}`, err));
-                    logger_1.DBLogger.error(`Cannot use the database: ${(0, logger_1.errorMessage)(err)}`);
+                    logger_1.ReForgeDBLogger.error(`Cannot use the database: ${(0, logger_1.errorMessage)(err)}`);
                     return;
                 }
                 const wait = Math.min(1000 * 2 ** attempt, 60_000);
-                logger_1.DBLogger.error(`Could not connect to the database (attempt ${attempt + 1}), retrying in ${wait / 1000}s: ${(0, logger_1.errorMessage)(err)}`);
-                logger_1.DBLogger.debug(err);
+                logger_1.ReForgeDBLogger.error(`Could not connect to the database (attempt ${attempt + 1}), retrying in ${wait / 1000}s: ${(0, logger_1.errorMessage)(err)}`);
+                logger_1.ReForgeDBLogger.debug(err);
                 await new Promise((resolve) => {
                     DataBase.wakeRetry = resolve;
                     DataBase.retryTimer = setTimeout(resolve, wait);
@@ -276,7 +300,7 @@ class DataBase extends databaseManager_1.DataBaseManager {
         catch (err) {
             // Slower, but always correct: go through TypeORM's repositories.
             DataBase.sql = null;
-            logger_1.DBLogger.debug("Could not prepare the fast statements, using repositories:", err);
+            logger_1.ReForgeDBLogger.debug("Could not prepare the fast statements, using repositories:", err);
         }
         for (const w of DataBase.waiters)
             w.resolve();
@@ -355,15 +379,15 @@ class DataBase extends databaseManager_1.DataBaseManager {
             const ms = perf_hooks_1.performance.now() - started;
             const slow = DataBase.settings.slowQueryThreshold;
             if (slow > 0 && ms >= slow)
-                logger_1.DBLogger.warn(`Slow ${label} (${detail}): ${ms.toFixed(1)} ms`);
-            else if (logger_1.DBLogger.enabled("debug"))
-                logger_1.DBLogger.debug(`${label} ${detail} (${ms.toFixed(2)} ms)`);
+                logger_1.ReForgeDBLogger.warn(`Slow ${label} (${detail}): ${ms.toFixed(1)} ms`);
+            else if (logger_1.ReForgeDBLogger.enabled("debug"))
+                logger_1.ReForgeDBLogger.debug(`${label} ${detail} (${ms.toFixed(2)} ms)`);
             return result;
         }
         catch (err) {
             if (err instanceof logger_1.ReForgeDBError)
                 throw err;
-            logger_1.DBLogger.debug(`${label} ${detail} failed after ${(perf_hooks_1.performance.now() - started).toFixed(1)} ms:`, err);
+            logger_1.ReForgeDBLogger.debug(`${label} ${detail} failed after ${(perf_hooks_1.performance.now() - started).toFixed(1)} ms:`, err);
             throw new logger_1.ReForgeDBError(`${label} failed: ${(0, logger_1.errorMessage)(err)}`, err);
         }
     }
@@ -385,7 +409,7 @@ class DataBase extends databaseManager_1.DataBaseManager {
             DataBase.emitter?.emit(event, ...args);
         }
         catch (err) {
-            logger_1.DBLogger.error(`A ${event} listener threw:`, err);
+            logger_1.ReForgeDBLogger.error(`A ${event} listener threw:`, err);
         }
     }
     /** Marks variables of `type`/`name` as changed (unknown: all of them). */
@@ -491,7 +515,7 @@ class DataBase extends databaseManager_1.DataBaseManager {
         const identifier = data.identifier ?? DataBase.make_intetifier(data);
         const hit = DataBase.readCache?.get(identifier);
         if (hit) {
-            logger_1.DBLogger.trace(`get ${identifier} (cache)`);
+            logger_1.ReForgeDBLogger.trace(`get ${identifier} (cache)`);
             return hit.value ? DataBase.entity(hit.value) : null;
         }
         const seq = DataBase.writeSeq;
@@ -744,8 +768,8 @@ class DataBase extends databaseManager_1.DataBaseManager {
         if (!every)
             return;
         const sweep = () => DataBase.sweepCooldowns()
-            .then((n) => n && logger_1.DBLogger.debug(`Deleted ${n} expired cooldown(s)`))
-            .catch((err) => logger_1.DBLogger.warn(`Could not delete expired cooldowns: ${(0, logger_1.errorMessage)(err)}`));
+            .then((n) => n && logger_1.ReForgeDBLogger.debug(`Deleted ${n} expired cooldown(s)`))
+            .catch((err) => logger_1.ReForgeDBLogger.warn(`Could not delete expired cooldowns: ${(0, logger_1.errorMessage)(err)}`));
         DataBase.sweeper = setInterval(sweep, every);
         DataBase.sweeper.unref?.();
         setTimeout(sweep, Math.min(every, 5000)).unref?.();
@@ -786,6 +810,16 @@ class DataBase extends databaseManager_1.DataBaseManager {
             throw new logger_1.ReForgeDBError(`ping failed: ${(0, logger_1.errorMessage)(err)}`, err);
         }
         return perf_hooks_1.performance.now() - started;
+    }
+    /**
+     * Forgets the cached variables and leaderboards, so the next reads go to
+     * the database. Use it after changing the database outside ReForgeDB (a
+     * script, a dashboard) when the `cache` option is on.
+     */
+    static clearCache() {
+        DataBase.touch();
+        DataBase.readCache?.clear();
+        DataBase.boards.clear();
     }
     /** Closes the connection and stops background work (retries, cooldown sweep). */
     static async close() {

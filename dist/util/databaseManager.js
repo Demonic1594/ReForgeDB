@@ -2,6 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DataBaseManager = void 0;
 require("reflect-metadata");
+const fs_1 = require("fs");
+const path_1 = require("path");
 const typeorm_1 = require("typeorm");
 const types_1 = require("./types");
 const logger_1 = require("./logger");
@@ -52,6 +54,13 @@ function waitForConfig() {
  * }
  */
 class DataBaseManager {
+    /**
+     * SQLite only: the file name this database had before (for example
+     * `forge.db`). When `database` does not exist yet and this one does, it is
+     * renamed on first start, with its `-wal`, `-shm` and `-journal` files, so
+     * the data carries over.
+     */
+    previousDatabase;
     type;
     static type;
     constructor(options) {
@@ -91,7 +100,7 @@ class DataBaseManager {
             entities,
             synchronize: options.synchronize ?? true,
         };
-        if (logger_1.DBLogger.enabled("trace")) {
+        if (logger_1.ReForgeDBLogger.enabled("trace")) {
             base.logging = "all";
             base.logger = "simple-console";
         }
@@ -124,27 +133,34 @@ class DataBaseManager {
                 await db.query("PRAGMA journal_mode = DELETE");
         }
         catch (err) {
-            logger_1.DBLogger.warn(`Could not tune SQLite for ${this.database}: ${(0, logger_1.errorMessage)(err)}`);
+            logger_1.ReForgeDBLogger.warn(`Could not tune SQLite for ${this.database}: ${(0, logger_1.errorMessage)(err)}`);
         }
     }
     /**
-     * Connects and synchronizes. A MariaDB server reached with `type: "mysql"`
-     * is switched to the `mariadb` settings: with the `mysql` ones TypeORM
-     * misreads MariaDB's column defaults and alters the tables and rebuilds
-     * their indexes on every start.
+     * Runs after connecting and before TypeORM synchronizes the schema, for
+     * clean-ups the new schema needs (ReForgeDB removes duplicate MongoDB
+     * documents before building a unique index). Does nothing by default.
+     */
+    async beforeSynchronize(_db) { }
+    /**
+     * Connects, runs `beforeSynchronize`, then synchronizes. A MariaDB server
+     * reached with `type: "mysql"` is switched to the `mariadb` settings: with
+     * the `mysql` ones TypeORM misreads MariaDB's column defaults and alters
+     * the tables and rebuilds their indexes on every start.
      */
     async #connect(options, entities) {
         const built = this.#buildOptions(options, entities);
-        if (built.type !== "mysql")
-            return new typeorm_1.DataSource(built).initialize();
-        const db = await new typeorm_1.DataSource({ ...built, synchronize: false }).initialize();
+        let db = await new typeorm_1.DataSource({ ...built, synchronize: false }).initialize();
         try {
-            const rows = (await db.query("SELECT VERSION() AS version"));
-            if (/mariadb/i.test(String(rows[0]?.version ?? ""))) {
-                await db.destroy();
-                logger_1.DBLogger.debug(`${this.database}: MariaDB server detected, using the mariadb settings`);
-                return new typeorm_1.DataSource({ ...built, type: "mariadb" }).initialize();
+            if (built.type === "mysql") {
+                const rows = (await db.query("SELECT VERSION() AS version"));
+                if (/mariadb/i.test(String(rows[0]?.version ?? ""))) {
+                    await db.destroy();
+                    logger_1.ReForgeDBLogger.debug(`${this.database}: MariaDB server detected, using the mariadb settings`);
+                    db = await new typeorm_1.DataSource({ ...built, type: "mariadb", synchronize: false }).initialize();
+                }
             }
+            await this.beforeSynchronize(db);
             if (built.synchronize)
                 await db.synchronize();
             return db;
@@ -155,21 +171,53 @@ class DataBaseManager {
             throw err;
         }
     }
+    /**
+     * Renames `previousDatabase` to `database` in the SQLite folder. The side
+     * files go first and the database file last, so an interrupted rename is
+     * finished on the next start: the new file only exists once everything
+     * has moved, and each side file keeps the name of the file it belongs to.
+     */
+    #renamePrevious(options) {
+        const previous = this.previousDatabase;
+        if (!previous || previous === this.database || (0, types_1.driverKind)(options.type) !== "sqlite")
+            return;
+        const folder = options.folder ?? "database";
+        const from = (0, path_1.join)(folder, previous);
+        const to = (0, path_1.join)(folder, this.database);
+        if (!(0, fs_1.existsSync)(from))
+            return;
+        if ((0, fs_1.existsSync)(to)) {
+            logger_1.ReForgeDBLogger.warn(`Both ${from} and ${to} exist. Using ${to}; ${from} is left as it is (delete it once you no longer need it).`);
+            return;
+        }
+        try {
+            for (const suffix of ["-journal", "-wal", "-shm"]) {
+                if ((0, fs_1.existsSync)(from + suffix) && !(0, fs_1.existsSync)(to + suffix))
+                    (0, fs_1.renameSync)(from + suffix, to + suffix);
+            }
+            (0, fs_1.renameSync)(from, to);
+        }
+        catch (err) {
+            throw new logger_1.ReForgeDBError(`Could not rename ${from} to ${to}: ${(0, logger_1.errorMessage)(err)}. Stop anything that uses the file and start again, or rename it yourself.`, err);
+        }
+        logger_1.ReForgeDBLogger.info(`Renamed ${from} to ${to}`);
+    }
     async #open(options) {
         const kind = (0, types_1.driverKind)(options.type);
         const entities = this.entityManager[kind];
         const started = Date.now();
+        this.#renamePrevious(options);
         try {
             const db = await this.#connect(options, entities);
             await this.#prepare(db, options);
-            logger_1.DBLogger.debug(`Opened ${this.database} (${db.options.type}) in ${Date.now() - started} ms`);
+            logger_1.ReForgeDBLogger.debug(`Opened ${this.database} (${db.options.type}) in ${Date.now() - started} ms`);
             return db;
         }
         catch (err) {
             const fallback = this.fallbackEntities(kind, err);
             if (!fallback)
                 throw err;
-            logger_1.DBLogger.warn(`${this.database}: ${(0, logger_1.errorMessage)(err)}. Retrying without it.`);
+            logger_1.ReForgeDBLogger.warn(`${this.database}: ${(0, logger_1.errorMessage)(err)}. Retrying without it.`);
             const db = await this.#connect(options, fallback);
             await this.#prepare(db, options);
             return db;

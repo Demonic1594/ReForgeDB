@@ -1,9 +1,9 @@
 import { Interpreter } from "@tryforge/forgescript"
 import { ReForgeDB } from ".."
-import { DBEventHandler } from "../structures/eventManager"
-import { DBLogger } from "../util/logger"
+import { ReForgeDBEventHandler } from "../structures/eventManager"
+import { ReForgeDBLogger } from "../util/logger"
 
-export default new DBEventHandler({
+export default new ReForgeDBEventHandler({
     name: "variableDelete",
     version: "2.0.0",
     description: "This event is triggered when a variable gets deleted.",
@@ -17,7 +17,7 @@ export default new DBEventHandler({
                 command,
                 data: command.compiled.code,
                 extras,
-            }).catch((err) => DBLogger.error(`The variableDelete command "${command.name ?? "unnamed"}" failed:`, err))
+            }).catch((err) => ReForgeDBLogger.error(`The variableDelete command "${command.name ?? "unnamed"}" failed:`, err))
         }
     },
 })

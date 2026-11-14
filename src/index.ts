@@ -1,7 +1,7 @@
 import { Compiler, EventManager, ForgeClient, ForgeExtension, IExtendedCompilationResult } from "@tryforge/forgescript"
 import { TypedEmitter } from "tiny-typed-emitter"
-import { DataBase, DBLogger, errorMessage, IReForgeDBOptions, ReForgeDBError, resolveSettings } from "./util"
-import { DBCommandManager, EVENT_HANDLER_NAME, IDBEvents } from "./structures"
+import { DataBase, ReForgeDBLogger, errorMessage, IReForgeDBOptions, ReForgeDBError, resolveSettings } from "./util"
+import { ReForgeDBCommandManager, EVENT_HANDLER_NAME, IReForgeDBEvents } from "./structures"
 
 const pkg = require("../package.json") as { version: string; description: string }
 
@@ -32,18 +32,18 @@ export class ReForgeDB extends ForgeExtension {
     description: string = pkg.description
     version: string = pkg.version
 
-    public commands!: DBCommandManager
-    public emitter = new TypedEmitter<TransformEvents<IDBEvents>>()
+    public commands!: ReForgeDBCommandManager
+    public emitter = new TypedEmitter<TransformEvents<IReForgeDBEvents>>()
 
     public constructor(public readonly options?: IReForgeDBOptions) {
         super()
         // Fail at start-up with a clear message, not on the first command.
         resolveSettings(options)
-        if (options?.logLevel) DBLogger.level = options.logLevel
+        if (options?.logLevel) ReForgeDBLogger.level = options.logLevel
     }
 
     init(client: ForgeClient): void {
-        this.commands = new DBCommandManager(client)
+        this.commands = new ReForgeDBCommandManager(client)
 
         EventManager.load(EVENT_HANDLER_NAME, __dirname + "/events")
         this.load(__dirname + "/functions")
@@ -110,7 +110,7 @@ export class ReForgeDB extends ForgeExtension {
     }
 }
 
-export { DataBaseManager, DataBase, Leaderboard, ReForgeDBError, DBLogger } from "./util"
+export { DataBaseManager, DataBase, Leaderboard, ReForgeDBError, ReForgeDBLogger } from "./util"
 export type { IReForgeDBOptions, IDataBaseOptions, LogLevel, SearchFilter, LeaderboardQuery, LeaderboardEntry, StoredRecord, RecordData } from "./util"
 export { EVENT_HANDLER_NAME } from "./structures"
-export type { IDBEvents } from "./structures"
+export type { IReForgeDBEvents } from "./structures"

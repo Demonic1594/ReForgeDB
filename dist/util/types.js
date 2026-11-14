@@ -282,9 +282,10 @@ exports.SQLCooldown = SQLCooldown = __decorate([
 ], SQLCooldown);
 /*
  * MongoDB keys documents by `_id`, so `identifier` gets its own index: without
- * it every read was a full collection scan. Non-unique on purpose: ForgeDB's
- * old read-then-write could leave duplicates, and a unique index would refuse
- * to build on such a collection and stop the bot from starting. The
+ * it every read was a full collection scan. It is unique, which is also what
+ * makes an upsert safe: without it two first writes at the same moment insert
+ * two documents. ForgeDB's read-then-write could leave such duplicates; they
+ * are removed before the index is built (DataBase.beforeSynchronize). The
  * name/type/guildId index is inherited from SQLiteRecord.
  */
 let MongoRecord = class MongoRecord extends SQLiteRecord {
@@ -297,7 +298,7 @@ __decorate([
 ], MongoRecord.prototype, "mongoId", void 0);
 exports.MongoRecord = MongoRecord = __decorate([
     (0, typeorm_1.Entity)(),
-    (0, typeorm_1.Index)("IDX_mongo_record_identifier", ["identifier"])
+    (0, typeorm_1.Index)("UQ_mongo_record_identifier", ["identifier"], { unique: true })
 ], MongoRecord);
 let MongoCooldown = class MongoCooldown extends Cooldown {
     mongoId;
@@ -309,6 +310,6 @@ __decorate([
 ], MongoCooldown.prototype, "mongoId", void 0);
 exports.MongoCooldown = MongoCooldown = __decorate([
     (0, typeorm_1.Entity)(),
-    (0, typeorm_1.Index)("IDX_mongo_cooldown_identifier", ["identifier"])
+    (0, typeorm_1.Index)("UQ_mongo_cooldown_identifier", ["identifier"], { unique: true })
 ], MongoCooldown);
 //# sourceMappingURL=types.js.map

@@ -1,4 +1,4 @@
-import type { IDBEvents } from "../structures";
+import type { IReForgeDBEvents } from "../structures";
 import type { LogLevel } from "./logger";
 export declare enum SortType {
     asc = 0,
@@ -36,7 +36,7 @@ export interface IReadCacheOptions {
 /** Options shared by every database type. */
 export interface IReForgeDBCommonOptions {
     /** The database events to listen to. */
-    events?: Array<keyof IDBEvents>;
+    events?: Array<keyof IReForgeDBEvents>;
     /** Console output level. Defaults to `info`, or the `REFORGEDB_LOG_LEVEL` environment variable. */
     logLevel?: LogLevel;
     /** Operations slower than this many ms are logged as a warning. `0` disables it. Defaults to `1000`. */
@@ -92,7 +92,7 @@ export type IReForgeDBOptions = ({
     database?: string;
 } | {
     type: "better-sqlite3" | "sqlite";
-    /** Folder of the database file (`<folder>/forge.db`). Defaults to `database`. */
+    /** Folder of the database file (`<folder>/reforge.db`). Defaults to `database`. */
     folder?: string;
     /** Use SQLite's write-ahead log: much faster writes, readers never block. Defaults to `true`. */
     wal?: boolean;

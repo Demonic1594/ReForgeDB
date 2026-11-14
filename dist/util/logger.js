@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ReForgeDBError = exports.DBLogger = exports.LOG_PREFIX = void 0;
+exports.ReForgeDBError = exports.ReForgeDBLogger = exports.LOG_PREFIX = void 0;
 exports.isLogLevel = isLogLevel;
 exports.errorMessage = errorMessage;
 const forgescript_1 = require("@tryforge/forgescript");
@@ -18,7 +18,7 @@ function isLogLevel(value) {
  * The level comes from the `logLevel` option, or the `REFORGEDB_LOG_LEVEL`
  * environment variable when the option is not set.
  */
-class DBLogger {
+class ReForgeDBLogger {
     static level = isLogLevel(process.env.REFORGEDB_LOG_LEVEL) ? process.env.REFORGEDB_LOG_LEVEL : "info";
     static enabled(level) {
         return LEVELS[this.level] >= LEVELS[level] && level !== "silent";
@@ -59,7 +59,7 @@ class DBLogger {
         this.write("trace", forgescript_1.LogType.Debug, args);
     }
 }
-exports.DBLogger = DBLogger;
+exports.ReForgeDBLogger = ReForgeDBLogger;
 /** An error raised by ReForgeDB itself, with a message meant for the bot developer. */
 class ReForgeDBError extends Error {
     cause;

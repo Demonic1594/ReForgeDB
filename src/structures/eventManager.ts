@@ -5,7 +5,7 @@ import { SQLiteRecord } from "../util/types"
 /** Name of ReForgeDB's event handler in ForgeScript's EventManager. */
 export const EVENT_HANDLER_NAME = "ReForgeDBEvents"
 
-export interface IDBEvents {
+export interface IReForgeDBEvents {
     connect: []
     variableCreate: [
         {
@@ -28,7 +28,7 @@ export interface IDBEvents {
     ]
 }
 
-export class DBEventHandler<T extends keyof IDBEvents> extends BaseEventHandler<IDBEvents, T> {
+export class ReForgeDBEventHandler<T extends keyof IReForgeDBEvents> extends BaseEventHandler<IReForgeDBEvents, T> {
     register(client: ForgeClient): void {
         //@ts-ignore emitter is typed per event name
         client.getExtension(ReForgeDB, true)["emitter"].on(this.name, this.listener.bind(client))

@@ -20,7 +20,7 @@ export declare function isLogLevel(value: unknown): value is LogLevel;
  * The level comes from the `logLevel` option, or the `REFORGEDB_LOG_LEVEL`
  * environment variable when the option is not set.
  */
-export declare class DBLogger {
+export declare class ReForgeDBLogger {
     static level: LogLevel;
     static enabled(level: LogLevel): boolean;
     private static write;

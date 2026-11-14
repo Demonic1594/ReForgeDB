@@ -2,7 +2,7 @@ import { BaseEventHandler, ForgeClient } from "@tryforge/forgescript";
 import { SQLiteRecord } from "../util/types";
 /** Name of ReForgeDB's event handler in ForgeScript's EventManager. */
 export declare const EVENT_HANDLER_NAME = "ReForgeDBEvents";
-export interface IDBEvents {
+export interface IReForgeDBEvents {
     connect: [];
     variableCreate: [
         {
@@ -24,7 +24,7 @@ export interface IDBEvents {
         }
     ];
 }
-export declare class DBEventHandler<T extends keyof IDBEvents> extends BaseEventHandler<IDBEvents, T> {
+export declare class ReForgeDBEventHandler<T extends keyof IReForgeDBEvents> extends BaseEventHandler<IReForgeDBEvents, T> {
     register(client: ForgeClient): void;
 }
 //# sourceMappingURL=eventManager.d.ts.map

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.EVENT_HANDLER_NAME = exports.DBLogger = exports.ReForgeDBError = exports.Leaderboard = exports.DataBase = exports.DataBaseManager = exports.ReForgeDB = void 0;
+exports.EVENT_HANDLER_NAME = exports.ReForgeDBLogger = exports.ReForgeDBError = exports.Leaderboard = exports.DataBase = exports.DataBaseManager = exports.ReForgeDB = void 0;
 const forgescript_1 = require("@tryforge/forgescript");
 const tiny_typed_emitter_1 = require("tiny-typed-emitter");
 const util_1 = require("./util");
@@ -32,10 +32,10 @@ class ReForgeDB extends forgescript_1.ForgeExtension {
         // Fail at start-up with a clear message, not on the first command.
         (0, util_1.resolveSettings)(options);
         if (options?.logLevel)
-            util_1.DBLogger.level = options.logLevel;
+            util_1.ReForgeDBLogger.level = options.logLevel;
     }
     init(client) {
-        this.commands = new structures_1.DBCommandManager(client);
+        this.commands = new structures_1.ReForgeDBCommandManager(client);
         forgescript_1.EventManager.load(structures_1.EVENT_HANDLER_NAME, __dirname + "/events");
         this.load(__dirname + "/functions");
         // Kept from ForgeDB: other code (QuorielDB's transfer, extensions) uses client.db.
@@ -102,7 +102,7 @@ Object.defineProperty(exports, "DataBaseManager", { enumerable: true, get: funct
 Object.defineProperty(exports, "DataBase", { enumerable: true, get: function () { return util_2.DataBase; } });
 Object.defineProperty(exports, "Leaderboard", { enumerable: true, get: function () { return util_2.Leaderboard; } });
 Object.defineProperty(exports, "ReForgeDBError", { enumerable: true, get: function () { return util_2.ReForgeDBError; } });
-Object.defineProperty(exports, "DBLogger", { enumerable: true, get: function () { return util_2.DBLogger; } });
+Object.defineProperty(exports, "ReForgeDBLogger", { enumerable: true, get: function () { return util_2.ReForgeDBLogger; } });
 var structures_2 = require("./structures");
 Object.defineProperty(exports, "EVENT_HANDLER_NAME", { enumerable: true, get: function () { return structures_2.EVENT_HANDLER_NAME; } });
 //# sourceMappingURL=index.js.map

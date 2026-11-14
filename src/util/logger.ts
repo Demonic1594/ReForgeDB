@@ -28,7 +28,7 @@ export function isLogLevel(value: unknown): value is LogLevel {
  * The level comes from the `logLevel` option, or the `REFORGEDB_LOG_LEVEL`
  * environment variable when the option is not set.
  */
-export class DBLogger {
+export class ReForgeDBLogger {
     static level: LogLevel = isLogLevel(process.env.REFORGEDB_LOG_LEVEL) ? process.env.REFORGEDB_LOG_LEVEL : "info"
 
     static enabled(level: LogLevel) {

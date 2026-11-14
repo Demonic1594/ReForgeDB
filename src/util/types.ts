@@ -1,5 +1,5 @@
 import { Entity, Column, PrimaryColumn, ObjectIdColumn, Index, ValueTransformer } from "typeorm"
-import type { IDBEvents } from "../structures"
+import type { IReForgeDBEvents } from "../structures"
 import type { LogLevel } from "./logger"
 
 export enum SortType {
@@ -57,7 +57,7 @@ export interface IReadCacheOptions {
 /** Options shared by every database type. */
 export interface IReForgeDBCommonOptions {
     /** The database events to listen to. */
-    events?: Array<keyof IDBEvents>
+    events?: Array<keyof IReForgeDBEvents>
 
     /** Console output level. Defaults to `info`, or the `REFORGEDB_LOG_LEVEL` environment variable. */
     logLevel?: LogLevel
@@ -125,7 +125,7 @@ export type IReForgeDBOptions = (
       }
     | {
           type: "better-sqlite3" | "sqlite"
-          /** Folder of the database file (`<folder>/forge.db`). Defaults to `database`. */
+          /** Folder of the database file (`<folder>/reforge.db`). Defaults to `database`. */
           folder?: string
           /** Use SQLite's write-ahead log: much faster writes, readers never block. Defaults to `true`. */
           wal?: boolean
@@ -316,20 +316,21 @@ export type CooldownData = {
 
 /*
  * MongoDB keys documents by `_id`, so `identifier` gets its own index: without
- * it every read was a full collection scan. Non-unique on purpose: ForgeDB's
- * old read-then-write could leave duplicates, and a unique index would refuse
- * to build on such a collection and stop the bot from starting. The
+ * it every read was a full collection scan. It is unique, which is also what
+ * makes an upsert safe: without it two first writes at the same moment insert
+ * two documents. ForgeDB's read-then-write could leave such duplicates; they
+ * are removed before the index is built (DataBase.beforeSynchronize). The
  * name/type/guildId index is inherited from SQLiteRecord.
  */
 @Entity()
-@Index("IDX_mongo_record_identifier", ["identifier"])
+@Index("UQ_mongo_record_identifier", ["identifier"], { unique: true })
 export class MongoRecord extends SQLiteRecord {
     @ObjectIdColumn()
     mongoId?: string
 }
 
 @Entity()
-@Index("IDX_mongo_cooldown_identifier", ["identifier"])
+@Index("UQ_mongo_cooldown_identifier", ["identifier"], { unique: true })
 export class MongoCooldown extends Cooldown {
     @ObjectIdColumn()
     mongoId?: string

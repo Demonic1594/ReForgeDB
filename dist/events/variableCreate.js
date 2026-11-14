@@ -4,7 +4,7 @@ const forgescript_1 = require("@tryforge/forgescript");
 const __1 = require("..");
 const eventManager_1 = require("../structures/eventManager");
 const logger_1 = require("../util/logger");
-exports.default = new eventManager_1.DBEventHandler({
+exports.default = new eventManager_1.ReForgeDBEventHandler({
     name: "variableCreate",
     version: "2.0.0",
     description: "This event is triggered when a new variable gets created.",
@@ -17,7 +17,7 @@ exports.default = new eventManager_1.DBEventHandler({
                 command,
                 data: command.compiled.code,
                 extras,
-            }).catch((err) => logger_1.DBLogger.error(`The variableCreate command "${command.name ?? "unnamed"}" failed:`, err));
+            }).catch((err) => logger_1.ReForgeDBLogger.error(`The variableCreate command "${command.name ?? "unnamed"}" failed:`, err));
         }
     },
 });

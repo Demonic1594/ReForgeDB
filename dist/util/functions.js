@@ -70,9 +70,9 @@ function logFailure(line, cause) {
     if (lastLogged.size > 500)
         lastLogged.clear();
     lastLogged.set(line, { at: now, skipped: 0 });
-    logger_1.DBLogger.error(seen?.skipped ? `${line} (and ${seen.skipped} more times)` : line);
+    logger_1.ReForgeDBLogger.error(seen?.skipped ? `${line} (and ${seen.skipped} more times)` : line);
     if (cause)
-        logger_1.DBLogger.debug(cause);
+        logger_1.ReForgeDBLogger.debug(cause);
 }
 /**
  * Runs a function body and turns any thrown error into a ForgeScript error,
@@ -92,7 +92,7 @@ async function guarded(fn, body) {
         const message = (0, logger_1.errorMessage)(err);
         const line = `${fn.data.name}: ${message}`;
         if (err instanceof logger_1.ReForgeDBError && !err.cause)
-            logger_1.DBLogger.debug(line);
+            logger_1.ReForgeDBLogger.debug(line);
         else
             logFailure(line, err instanceof logger_1.ReForgeDBError ? err.cause : err);
         return fn.customError(`[ReForgeDB] ${message}`);

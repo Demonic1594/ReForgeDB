@@ -4,7 +4,7 @@ const forgescript_1 = require("@tryforge/forgescript");
 const __1 = require("..");
 const eventManager_1 = require("../structures/eventManager");
 const logger_1 = require("../util/logger");
-exports.default = new eventManager_1.DBEventHandler({
+exports.default = new eventManager_1.ReForgeDBEventHandler({
     name: "connect",
     version: "2.0.0",
     description: "This event is triggered when ReForgeDB has connected to the database",
@@ -16,7 +16,7 @@ exports.default = new eventManager_1.DBEventHandler({
                 client: this,
                 command,
                 data: command.compiled.code,
-            }).catch((err) => logger_1.DBLogger.error(`The connect command "${command.name ?? "unnamed"}" failed:`, err));
+            }).catch((err) => logger_1.ReForgeDBLogger.error(`The connect command "${command.name ?? "unnamed"}" failed:`, err));
         }
     },
 });

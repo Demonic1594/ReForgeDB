@@ -31,6 +31,13 @@ export declare abstract class DataBaseManager {
         mysql: EntityList;
         postgres: EntityList;
     };
+    /**
+     * SQLite only: the file name this database had before (for example
+     * `forge.db`). When `database` does not exist yet and this one does, it is
+     * renamed on first start, with its `-wal`, `-shm` and `-journal` files, so
+     * the data carries over.
+     */
+    previousDatabase?: string;
     type?: IReForgeDBOptions["type"];
     static type: IReForgeDBOptions["type"];
     constructor(options?: IReForgeDBOptions);
@@ -44,6 +51,12 @@ export declare abstract class DataBaseManager {
      * Return `undefined` to give up instead.
      */
     protected fallbackEntities(_kind: DriverKind, _error: unknown): EntityList | undefined;
+    /**
+     * Runs after connecting and before TypeORM synchronizes the schema, for
+     * clean-ups the new schema needs (ReForgeDB removes duplicate MongoDB
+     * documents before building a unique index). Does nothing by default.
+     */
+    protected beforeSynchronize(_db: DataSource): Promise<void>;
     /**
      * Returns the connected `DataSource` of this manager's database, opening
      * it on first use. Rejects when the connection fails; call it again to
