@@ -25,9 +25,10 @@ ReForgeDB is a reworked, hardened and faster database extension for ForgeScript:
 10. [Switching from ForgeDB](#switching-from-forgedb)
 11. [Other Extensions](#other-extensions)
 12. [Switching Between sqlite and better-sqlite3](#switching-between-sqlite-and-better-sqlite3)
-13. [Notes and Limits](#notes-and-limits)
-14. [Development](#development)
-15. [Credits and License](#credits-and-license)
+13. [Backups and Moving Data](#backups-and-moving-data)
+14. [Notes and Limits](#notes-and-limits)
+15. [Development](#development)
+16. [Credits and License](#credits-and-license)
 
 <h3 align="center">Why ReForgeDB</h3><hr>
 
@@ -36,7 +37,7 @@ ReForgeDB is a reworked, hardened and faster database extension for ForgeScript:
 - 🛡️ **Survives a database that is down.** It reconnects by itself, and functions answer with an error your code can catch instead of crashing the bot.
 - ⚡ **Faster.** Writes are 3 to 10 times faster, a leaderboard command scans its variable once instead of once per function, and deleting thousands of variables is one statement.
 - 🔎 **Tells you what is wrong.** Clear errors that `$try` can catch, five log levels up to every SQL statement, and warnings for slow operations.
-- 🧪 **Tested.** 145 tests, including a seeded fuzz test with injected database failures and switching between the two SQLite drivers under load, run in CI on SQLite, better-sqlite3, PostgreSQL, MariaDB, MySQL and MongoDB, on ForgeScript 2.5 and 2.8.
+- 🧪 **Tested.** 160 tests, including a seeded fuzz test with injected database failures and switching between the two SQLite drivers under load, run in CI on SQLite, better-sqlite3, PostgreSQL, MariaDB, MySQL and MongoDB, on ForgeScript 2.5 and 2.8.
 
 <details>
 <summary><b>Everything fixed compared to ForgeDB 2.1.1</b></summary>
@@ -117,6 +118,8 @@ Requires Node.js 18.17 or newer (20.17 for `sqlite3` 6, 22 for ForgeScript 2.8) 
 | `cache` | off | Keep recently used variables in memory: `true`, or `{ max: 10000, ttl: 0 }`. Only for a single bot process, see [Performance](#performance) |
 | `leaderboardCacheTTL` | `2000` | Reuse a sorted leaderboard for this many ms; `0` disables it |
 | `cooldownSweepInterval` | `3600000` | Delete expired cooldowns this often (ms); `0` disables it |
+| `cooldownExpireInterval` | `5000` | With a `cooldownExpire` listener: look for cooldowns that ran out this often (ms); `0` turns the event off |
+| `cooldownExpireMaxDelay` | `43200000` | A cooldown that ran out while the bot was offline still fires `cooldownExpire` if it is at most this late (12 hours); older ones are dropped. At least `60000` |
 | `readyTimeout` | `30000` | How long (ms) a function waits for the database to connect before it fails |
 | `synchronize` | `true` | Let ReForgeDB create and update its tables |
 | `typeorm` | | Extra [TypeORM](https://typeorm.io/docs/data-source/data-source-options) options, e.g. `{ ssl: { rejectUnauthorized: false } }` |
@@ -168,6 +171,7 @@ Only values that are numbers are ranked. Equal values are ordered by ID, the sam
 | `$getDB` | Every variable as JSON |
 | `$wipeDB` | Deletes every variable and cooldown |
 | `$dbPing[full?]` | Round trip to the database in ms |
+| `$dbBackup[file name?]` | SQLite: a consistent copy in `backups/` next to the database, while the bot runs; returns its path. See [Backups and Moving Data](#backups-and-moving-data) |
 
 <h3 align="center">Cooldowns</h3><hr>
 
@@ -215,9 +219,10 @@ ReForgeDB.variables({
 | `variableCreate` | A variable was set for the first time | `$data[...]` |
 | `variableUpdate` | An existing variable was set again | `$oldData[...]`, `$newData[...]` |
 | `variableDelete` | An existing variable was deleted | `$data[...]` |
+| `cooldownExpire` | A stored cooldown ran out | `$cooldownData[name]`, `[id]`, `[identifier]`, `[startedAt]`, `[duration]`, `[expiredAt]` |
 
 ```js
-const db = new ReForgeDB({ events: ["variableUpdate"] })
+const db = new ReForgeDB({ events: ["variableUpdate", "cooldownExpire"] })
 
 const client = new ForgeClient({
     ...options,
@@ -228,7 +233,14 @@ db.commands.add({
     type: "variableUpdate",
     code: `$log[$newData[name] of $newData[id]: $oldData[value] -> $newData[value]]`
 })
+
+db.commands.add({
+    type: "cooldownExpire",
+    code: `$if[$cooldownData[name]==daily;$sendDM[$cooldownData[id];Your daily reward is ready again!]]`
+})
 ```
+
+**`cooldownExpire`** fires once when a stored cooldown (`$dbUserCooldown` and the others) runs out. ReForgeDB looks for cooldowns that ran out every `cooldownExpireInterval` (5 s), so the event comes up to that late; there is no timer per cooldown, so a cooldown of any length works and nothing has to be rescheduled after a restart. Each one is claimed with a conditional delete, so with several bot processes on one database exactly one of them fires it, and a cooldown that was restarted or deleted before it ran out fires nothing. A cooldown that ran out more than `cooldownExpireMaxDelay` (12 hours) ago, while the bot was offline, is deleted without an event, and the number is logged: a bot that was off for a week does not send a week of "ready again" messages at once. For a member cooldown the ID is `user_guild`; a global cooldown has none. Without a listener, nothing is checked and the hourly sweep deletes expired cooldowns as before.
 
 The properties are `identifier`, `name`, `id`, `type`, `value` and `guildId`. Events are emitted after the write succeeded. `$wipeDB` emits no events.
 
@@ -340,7 +352,7 @@ Coming from ForgeDB 1.x (quick.db)? Move to ForgeDB 2 first with [its guide](htt
 <h3 align="center">Other Extensions</h3><hr>
 
 > ⚠️ **Warning**\
-> Extensions written for ForgeDB look for an extension named `forge.db` and import `@tryforge/forge.db`. **ForgeGiveaways and ReForgeGiveaways up to 2.2.1 therefore do not load with ReForgeDB yet.** A bot that uses them should stay on ForgeDB until they support ReForgeDB.
+> Extensions written for ForgeDB look for an extension named `forge.db` and import `@tryforge/forge.db`, so they do not load with ReForgeDB: the original ForgeGiveaways, and ReForgeGiveaways up to 2.2.1. **ReForgeGiveaways 3.0.0 and ReForgeTopGG 3.1.0 work with ReForgeDB or ForgeDB**, and remind ForgeDB users once to switch. Which ReForge versions work together is in [ECOSYSTEM.md](ECOSYSTEM.md).
 
 An extension stores its own tables through ReForgeDB's connection settings by extending `DataBaseManager`, exactly as with ForgeDB:
 
@@ -364,6 +376,22 @@ Both drivers read and write the same file format, so you can change `type` betwe
 
 > ⚠️ **Warning**\
 > Never open the database file with the **other** driver in the **same process** (for example a dashboard in the bot's process using better-sqlite3 while ReForgeDB uses sqlite3). Each driver brings its own copy of SQLite, and two copies in one process do not see each other's locks, which can corrupt the file (SQLite's [How To Corrupt An SQLite Database File](https://www.sqlite.org/howtocorrupt.html), "Multiple copies of SQLite linked into the same application"). Separate processes are safe: they take turns, and a write that waits longer than 5 s fails with an error `$try` can catch.
+
+<h3 align="center">Backups and Moving Data</h3><hr>
+
+**SQLite backup** while the bot runs: `$dbBackup` (or `$dbBackup[nightly]`) writes a consistent copy of the database to `backups/reforge-<date>.db` (or `backups/nightly.db`) next to it and returns the path. It uses SQLite's `VACUUM INTO`, so the copy is one moment's state even while commands write, and it is a single file without `-wal`. An existing file is never overwritten, and the name must be a plain file name (no folders, no leading dot), so a command cannot write anywhere else. From JavaScript, `await client.db.backup("/path/to/copy.db")` writes anywhere you choose, also never over an existing file or the database itself. To restore: stop the bot, put the copy in place of `reforge.db` (and remove `reforge.db-wal` and `reforge.db-shm`), start it again.
+
+**Export and import, every database:** `client.db.export()` returns every variable and cooldown as plain data (`JSON.stringify` it to keep it as a file), and `client.db.import(data)` writes it back, also into another type of database, which moves a bot from SQLite to PostgreSQL:
+
+```js
+// in the old bot (SQLite)
+fs.writeFileSync("export.json", JSON.stringify(await client.db.export()))
+// in the new bot (PostgreSQL), once connected
+const result = await client.db.import(fs.readFileSync("export.json", "utf8"))
+console.log(result) // { records: { created, overwritten, skipped }, cooldowns: { ... } }
+```
+
+Variables and cooldowns that already exist are kept unless you pass `{ overwrite: true }`. The whole file is checked before the first write, so data with a mistake writes nothing and the error lists the problems. Import emits no events and refreshes ReForgeDB's caches. On PostgreSQL, MySQL and MongoDB, the database's own tools (`pg_dump`, `mysqldump`, `mongodump`) are the usual way to back up; `$dbBackup` says so there.
 
 <h3 align="center">Notes and Limits</h3><hr>
 

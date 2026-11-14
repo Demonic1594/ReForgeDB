@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.2.0 (ReForgeDB, November 2026)
+
+A cooldown-expiry event, SQLite backups, and export/import for every database, adapted from ideas in [QuorielDB](https://github.com/quoriel/db) (hold timers, backups) and built differently. Nothing to migrate; without the new event nothing runs that did not run before.
+
+### Added
+- **`cooldownExpire` event** with `$cooldownData[name|id|identifier|startedAt|duration|expiredAt]`. It fires once when a stored cooldown runs out. ReForgeDB looks for cooldowns that ran out every `cooldownExpireInterval` (new option, 5 s) instead of keeping a timer per cooldown (QuorielDB's way), so any duration works (Node fires a `setTimeout` over 24.8 days at once) and nothing is rescheduled on start. Each expiry is claimed with a conditional delete (same identifier, start and duration), so with several bot processes on one database exactly one fires it, and a cooldown restarted or deleted before it ran out fires nothing. Cooldowns that ran out more than `cooldownExpireMaxDelay` (new option, 12 hours, at least 1 minute) ago, while the bot was offline, are deleted without an event and counted in the log, so a restart never sends a flood. Checks handle 500 at a time and continue at once when there are more. Without a listener nothing is checked, and the hourly sweep deletes expired cooldowns as before.
+- **`$dbBackup[file name?]`** and **`client.db.backup(file?)`**, SQLite: a consistent copy while the bot runs (`VACUUM INTO`), as one file without `-wal`, in `backups/` next to the database by default. Never overwrites a file or the database itself. `$dbBackup` takes only a plain file name (no folders, no leading dot), so a command cannot write outside `backups/`. On other databases it fails with an error that names `export()` and the database's own tools.
+- **`client.db.export()`** and **`client.db.import(data, { overwrite })`**, every database: all variables and cooldowns as plain JSON-safe data, and back, also into another type of database (checked by hand from SQLite into PostgreSQL). Existing entries are kept unless `overwrite` is set; the whole input is checked before the first write, so invalid data writes nothing and the error lists the problems. Import emits no events and refreshes the caches.
+- [ECOSYSTEM.md](ECOSYSTEM.md): the checklist every ReForge extension follows, and which versions work together.
+
+### Not taken from QuorielDB
+- Its configurable key schema and `registerDB` types: they would break ForgeDB's key format, which existing databases use, and `DataBaseManager` already lets extensions add their own tables.
+- LMDB.
+
+### Tests
+- `test/expire.test.js` (8): fired once with `$cooldownData` in an event command, restarted and deleted cooldowns, every scope, downtime (30 stale dropped, a 30-minute-late one and a 30-day cooldown fired), 1,200 at once, 4 processes on one database (60 expiries, each fired once in exactly one process), no checks without a listener.
+- `test/backup.test.js` (7 on SQLite, 5 on servers): export, wipe and import round trip with running cooldowns; overwrite; invalid input writes nothing; caches refreshed; `$dbBackup` complete and never overwriting; names that would leave `backups/` refused and nothing written; a consistent copy during writes; the error on servers.
+- 160 tests on SQLite (145 before), 130 on PostgreSQL (117).
+
 ## 3.1.0 (ReForgeDB, November 2026)
 
 Faster cooldown claims, one fix in them, and tests for switching between the two SQLite drivers. Nothing to migrate.

@@ -315,7 +315,7 @@ test("options are validated at construction with clear messages", () => {
     assert.throws(() => new lib.ReForgeDB({ type: "nope" }), /Unknown database type/)
 
     const d = resolveSettings(undefined)
-    assert.deepEqual(d, { slowQueryThreshold: 1000, readyTimeout: 30000, leaderboardCacheTTL: 2000, cooldownSweepInterval: 3600000, cache: null })
+    assert.deepEqual(d, { slowQueryThreshold: 1000, readyTimeout: 30000, leaderboardCacheTTL: 2000, cooldownSweepInterval: 3600000, cooldownExpireInterval: 5000, cooldownExpireMaxDelay: 43200000, cache: null })
     assert.deepEqual(resolveSettings({ type: "sqlite", cache: true }).cache, { max: 10000, ttl: 0 })
     assert.deepEqual(resolveSettings({ type: "sqlite", cache: { max: 50.9, ttl: 1000 } }).cache, { max: 50, ttl: 1000 })
     assert.equal(resolveSettings({ type: "mariadb" }).readyTimeout, 30000)

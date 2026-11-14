@@ -57,13 +57,52 @@ interface Settings {
     readyTimeout: number;
     leaderboardCacheTTL: number;
     cooldownSweepInterval: number;
+    cooldownExpireInterval: number;
+    cooldownExpireMaxDelay: number;
     cache: {
         max: number;
         ttl: number;
     } | null;
 }
+/** The smallest `cooldownExpireMaxDelay`: checks run every few seconds, and a restart takes a while. */
+export declare const MIN_COOLDOWN_EXPIRE_MAX_DELAY = 60000;
 /** Validates the options of `new ReForgeDB()` and returns the resolved settings. */
 export declare function resolveSettings(options: IReForgeDBOptions | undefined): Settings;
+/** What `client.db.export()` returns and `client.db.import()` reads. */
+export interface ReForgeDBExport {
+    format: "reforge.db";
+    version: 1;
+    exportedAt: string;
+    /** The database family it was exported from. */
+    source: string;
+    records: Array<{
+        identifier: string;
+        name: string;
+        id: string | null;
+        type: string;
+        value: string;
+        guildId: string | null;
+    }>;
+    cooldowns: Array<{
+        identifier: string;
+        name: string;
+        id: string | null;
+        startedAt: number;
+        duration: number;
+    }>;
+}
+export interface ImportResult {
+    records: {
+        created: number;
+        overwritten: number;
+        skipped: number;
+    };
+    cooldowns: {
+        created: number;
+        overwritten: number;
+        skipped: number;
+    };
+}
 /**
  * ReForgeDB's storage: variables ("records") and cooldowns. Everything is
  * static, and the bot's client exposes the class as `client.db`.
@@ -276,6 +315,45 @@ export declare class DataBase extends DataBaseManager {
     /** Deletes cooldowns that have run out. Returns how many were deleted. */
     static sweepCooldowns(): Promise<number>;
     private static startSweeper;
+    private static expirer;
+    private static expiring;
+    /** Whether cooldownExpire is on: something listens to it and the check runs. */
+    private static get expiryActive();
+    private static startExpirer;
+    /**
+     * Fires cooldownExpire for cooldowns that ran out, and deletes them. Each
+     * one is claimed with a conditional delete (same identifier, start and
+     * duration), so with several processes on one database exactly one fires
+     * it, and a cooldown restarted or deleted meanwhile fires nothing. One
+     * that ran out more than `cooldownExpireMaxDelay` ago (the bot was off) is
+     * deleted without an event. Returns how many were fired and dropped.
+     */
+    static expireCooldowns(now?: number): Promise<{
+        fired: number;
+        dropped: number;
+    }>;
+    /**
+     * SQLite: writes a consistent copy of the database to `file` while the bot
+     * runs (`VACUUM INTO`), and returns its path. Without `file`, the copy goes
+     * to `backups/reforge-<date>.db` next to the database. An existing file is
+     * never overwritten. On other databases, use `export()` or the database's
+     * own tools (pg_dump, mysqldump, mongodump).
+     */
+    static backup(file?: string): Promise<string>;
+    /**
+     * Every variable and cooldown as plain JSON-safe data, for any database.
+     * `import()` reads it back, also into another type of database.
+     */
+    static export(): Promise<ReForgeDBExport>;
+    /**
+     * Writes data from `export()` (the object or its JSON text) into the
+     * database. Existing variables and cooldowns (same identifier) are left as
+     * they are unless `overwrite` is true. Everything is checked before the
+     * first write, so invalid data writes nothing. Emits no events.
+     */
+    static import(input: ReForgeDBExport | string, options?: {
+        overwrite?: boolean;
+    }): Promise<ImportResult>;
     /**
      * Runs a raw query (SQL, not available on MongoDB). The read cache is
      * cleared, because the query may change variables.

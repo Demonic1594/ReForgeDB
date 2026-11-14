@@ -20,6 +20,8 @@ const OWN_OPTIONS = new Set([
     "cache",
     "leaderboardCacheTTL",
     "cooldownSweepInterval",
+    "cooldownExpireInterval",
+    "cooldownExpireMaxDelay",
     "readyTimeout",
     "synchronize",
     "typeorm",
