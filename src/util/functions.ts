@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "async_hooks"
 import { CompiledFunction, Context, IExtendedCompiledFunctionField, Interpreter, Return } from "@tryforge/forgescript"
 import { DataBase } from "./database"
 import { ReForgeDBLogger, errorMessage, ReForgeDBError } from "./logger"
+import { LRUCache } from "./primitives"
 import { RecordData, RecordType, VariableType } from "./types"
 
 /*
@@ -32,8 +33,14 @@ export function pickId(value: unknown): string | undefined {
     if (value === null || value === undefined) return undefined
     if (typeof value === "object") return pickId((value as { id?: unknown }).id)
     const text = String(value).trim()
-    return text === "" ? undefined : text
+    if (text === "") return undefined
+    // A mention of a user, member, channel or role stands for its ID: storing
+    // "<@123>" under its own key was a common mistake.
+    return MENTION.exec(text)?.[1] ?? text
 }
+
+/** `<@id>`, `<@!id>`, `<#id>` and `<@&id>`. */
+const MENTION = /^<(?:@[!&]?|#)(\d{16,23})>$/
 
 /** `pickId(given)`, else the context's ID; an error when there is neither. */
 export function requireId(given: unknown, fallback: string | undefined | null, what: string): string {
@@ -264,9 +271,16 @@ export async function resolveArgs(fn: Fn, ctx: Context, indexes: number[]): Prom
 export async function findChannel(ctx: Context, id: string) {
     const cached = ctx.client.channels.cache.get(id)
     if (cached) return cached
-    if (!/^\d{16,23}$/.test(id)) return null
-    return ctx.client.channels.fetch(id).catch(() => null)
+    if (!/^\d{16,23}$/.test(id) || unknownChannels.get(id)) return null
+    const channel = await ctx.client.channels.fetch(id).catch(() => null)
+    // A deleted channel's variables are often cleaned up in a loop: ask
+    // Discord about it once, not on every call.
+    if (!channel) unknownChannels.set(id, true)
+    return channel
 }
+
+/** Channel IDs Discord did not know, remembered for 10 minutes. */
+const unknownChannels = new LRUCache<string, true>(5000, 600_000)
 
 /** The guild of a channel variable: the channel's guild, else the command's guild. */
 export async function channelScope(ctx: Context, given: unknown) {

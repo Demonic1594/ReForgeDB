@@ -31,26 +31,44 @@ export class KeyedMutex {
 interface CacheEntry<V> {
     value: V
     expires: number
+    weight: number
 }
 
 /**
  * A bounded least-recently-used map with an optional time to live. A `Map`
  * keeps insertion order, so re-inserting on access makes the first key the
- * least recently used one.
+ * least recently used one. With `maxWeight`, the total `weigh(value)` of the
+ * entries is bounded too (an entry heavier than it is not kept at all).
  */
 export class LRUCache<K, V> {
     private readonly map = new Map<K, CacheEntry<V>>()
+    private totalWeight = 0
 
     constructor(
         public readonly max: number,
-        public readonly ttl = 0
+        public readonly ttl = 0,
+        public readonly maxWeight = Infinity,
+        private readonly weigh: (value: V) => number = () => 1
     ) {}
+
+    /** The total weight of the entries. */
+    get weight() {
+        return this.totalWeight
+    }
+
+    private remove(key: K) {
+        const entry = this.map.get(key)
+        if (!entry) return false
+        this.map.delete(key)
+        this.totalWeight -= entry.weight
+        return true
+    }
 
     get(key: K): { value: V } | undefined {
         const entry = this.map.get(key)
         if (!entry) return undefined
         if (entry.expires && entry.expires <= Date.now()) {
-            this.map.delete(key)
+            this.remove(key)
             return undefined
         }
         this.map.delete(key)
@@ -59,20 +77,23 @@ export class LRUCache<K, V> {
     }
 
     set(key: K, value: V, ttl = this.ttl) {
-        this.map.delete(key)
-        this.map.set(key, { value, expires: ttl > 0 ? Date.now() + ttl : 0 })
-        while (this.map.size > this.max) {
-            const oldest = this.map.keys().next().value as K
-            this.map.delete(oldest)
+        this.remove(key)
+        const weight = this.weigh(value)
+        if (weight > this.maxWeight) return
+        this.map.set(key, { value, expires: ttl > 0 ? Date.now() + ttl : 0, weight })
+        this.totalWeight += weight
+        while (this.map.size > this.max || this.totalWeight > this.maxWeight) {
+            this.remove(this.map.keys().next().value as K)
         }
     }
 
     delete(key: K) {
-        return this.map.delete(key)
+        return this.remove(key)
     }
 
     clear() {
         this.map.clear()
+        this.totalWeight = 0
     }
 
     get size() {
@@ -87,19 +108,60 @@ export function chunk<T>(items: T[], size: number): T[][] {
     return out
 }
 
+/** Longest `LIKE` pattern accepted, in characters. */
+export const MAX_LIKE_LENGTH = 1000
+
 /**
- * Turns a SQL `LIKE` pattern (`%` any text, `_` one character) into an
- * anchored, case-insensitive regular expression for MongoDB, which has no
- * `LIKE`. Everything else is matched literally.
+ * Makes a `LIKE` pattern safe to run: a run of `%` matches the same as one
+ * `%`, so it is collapsed (some engines backtrack once per `%`), and
+ * patterns longer than `MAX_LIKE_LENGTH` are refused.
  */
-export function likeToRegExp(pattern: string): RegExp {
-    let source = ""
-    for (const ch of pattern) {
-        if (ch === "%") source += "[\\s\\S]*"
-        else if (ch === "_") source += "[\\s\\S]"
-        else source += ch.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")
+export function normalizeLike(pattern: string): string {
+    if (pattern.length > MAX_LIKE_LENGTH) throw new RangeError(`A search pattern may be at most ${MAX_LIKE_LENGTH} characters (got ${pattern.length})`)
+    return pattern.replace(/%{2,}/g, "%")
+}
+
+/** The literal text a `LIKE` pattern starts with (before its first `%` or `_`). */
+export function likePrefix(pattern: string): string {
+    const i = pattern.search(/[%_]/)
+    return i === -1 ? pattern : pattern.slice(0, i)
+}
+
+/**
+ * A matcher for a SQL `LIKE` pattern (`%` any text, `_` one character,
+ * case-insensitive), for MongoDB, which has no `LIKE`. A regular expression
+ * for it backtracks exponentially on patterns like `%a%a%a%b` and runs on
+ * the database server; this greedy matcher takes linear time per wildcard.
+ */
+export function likeMatcher(pattern: string): (text: unknown) => boolean {
+    const p = Array.from(normalizeLike(pattern).toLowerCase())
+    return (value: unknown) => {
+        if (typeof value !== "string") return false
+        const t = Array.from(value.toLowerCase())
+        let ti = 0
+        let pi = 0
+        let star = -1
+        let resume = 0
+        while (ti < t.length) {
+            if (pi < p.length && (p[pi] === "_" || (p[pi] !== "%" && p[pi] === t[ti]))) {
+                ti++
+                pi++
+            } else if (pi < p.length && p[pi] === "%") {
+                star = pi++
+                resume = ti
+            } else if (star !== -1) {
+                pi = star + 1
+                ti = ++resume
+            } else return false
+        }
+        while (pi < p.length && p[pi] === "%") pi++
+        return pi === p.length
     }
-    return new RegExp(`^${source}$`, "i")
+}
+
+/** Escapes text for use inside a regular expression. */
+export function escapeRegExp(text: string): string {
+    return text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")
 }
 
 /**

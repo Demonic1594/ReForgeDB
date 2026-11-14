@@ -6,7 +6,7 @@ import type { IReForgeDBEvents } from "../structures"
 import type { TransformEvents } from ".."
 import { DataBaseManager, EntityList } from "./databaseManager"
 import { ReForgeDBLogger, errorMessage, isLogLevel, ReForgeDBError } from "./logger"
-import { chunk, compareIds, KeyedMutex, likeToRegExp, LRUCache, rankValue } from "./primitives"
+import { chunk, compareIds, escapeRegExp, KeyedMutex, likeMatcher, likePrefix, LRUCache, normalizeLike, rankValue } from "./primitives"
 import {
     Cooldown,
     DriverKind,
@@ -34,6 +34,10 @@ type Emitter = TypedEmitter<TransformEvents<IReForgeDBEvents>>
 const MYSQL_MAX_KEY = 255
 /** Rows per `IN (...)` when deleting many records (safe for every driver). */
 const DELETE_BATCH = 500
+/** Most variable names whose leaderboards are tracked for changes. */
+const MAX_TRACKED_NAMES = 10_000
+/** Most leaderboard entries kept in memory across all cached leaderboards. */
+const MAX_CACHED_ENTRIES = 1_000_000
 /** Errors that retrying the connection cannot fix. */
 const FATAL_CONNECT_ERRORS = new Set(["DriverPackageNotInstalledError", "MissingDriverError", "DataTypeNotSupportedError", "ColumnTypeUndefinedError"])
 
@@ -53,6 +57,10 @@ interface Statements {
     upsertRecord: string
     getCooldown: string
     upsertCooldown: string
+    /** Restarts a cooldown only if it has run out (params: startedAt, duration, name, id, identifier, now). */
+    claimExpiredCooldown: string
+    /** Starts a cooldown only if no row exists (params: the cooldown columns). */
+    claimNewCooldown: string
     /** `id` and `value` of every row of a name and type. */
     scan: string
     /** The same, for one guild. */
@@ -103,11 +111,22 @@ function buildStatements(db: DataSource, record: Function, cooldown: Function): 
     const r = table(record, RECORD_COLUMNS)
     const c = table(cooldown, COOLDOWN_COLUMNS)
     const scan = `SELECT ${r.col("id")} AS ${d.escape("id")}, ${r.col("value")} AS ${d.escape("value")} FROM ${r.name} WHERE ${r.col("name")} = ${r.param(0)} AND ${r.col("type")} = ${r.param(1)}`
+    const cooldownCols = COOLDOWN_COLUMNS.map(c.col).join(", ")
+    const cooldownParams = COOLDOWN_COLUMNS.map((_, i) => c.param(i)).join(", ")
+    const claimExpiredCooldown =
+        `UPDATE ${c.name} SET ${c.col("startedAt")} = ${c.param(0)}, ${c.col("duration")} = ${c.param(1)}, ${c.col("name")} = ${c.param(2)}, ${c.col("id")} = ${c.param(3)} ` +
+        `WHERE ${c.col("identifier")} = ${c.param(4)} AND ${c.col("startedAt")} + ${c.col("duration")} <= ${c.param(5)}`
+    const claimNewCooldown =
+        kind === "mysql"
+            ? `INSERT IGNORE INTO ${c.name} (${cooldownCols}) VALUES (${cooldownParams})`
+            : `INSERT INTO ${c.name} (${cooldownCols}) VALUES (${cooldownParams}) ON CONFLICT (${c.col("identifier")}) DO NOTHING`
     return {
         getRecord: r.get,
         upsertRecord: r.upsert,
         getCooldown: c.get,
         upsertCooldown: c.upsert,
+        claimExpiredCooldown,
+        claimNewCooldown,
         scan,
         scanGuild: `${scan} AND ${r.col("guildId")} = ${r.param(2)}`,
     }
@@ -275,7 +294,7 @@ export class DataBase extends DataBaseManager {
     private static sweeper: NodeJS.Timeout | null = null
 
     private static readCache: LRUCache<string, StoredRecord | null> | null = null
-    private static boards = new LRUCache<string, { board: Leaderboard; generation: number; global: number }>(200)
+    private static boards = new LRUCache<string, { board: Leaderboard; generation: number; global: number }>(200, 0, MAX_CACHED_ENTRIES, (v) => v.board.count + 1)
     private static generations = new Map<string, number>()
     private static globalGeneration = 0
     private static writeSeq = 0
@@ -294,7 +313,7 @@ export class DataBase extends DataBaseManager {
         if (options?.logLevel) ReForgeDBLogger.level = options.logLevel
         const c = DataBase.settings.cache
         DataBase.readCache = c ? new LRUCache(c.max, c.ttl) : null
-        DataBase.boards = new LRUCache(200, DataBase.settings.leaderboardCacheTTL)
+        DataBase.boards = new LRUCache(200, DataBase.settings.leaderboardCacheTTL, MAX_CACHED_ENTRIES, (v) => v.board.count + 1)
     }
 
     protected override fallbackEntities(kind: DriverKind, error: unknown): EntityList | undefined {
@@ -495,17 +514,35 @@ export class DataBase extends DataBaseManager {
         }
     }
 
-    /** Marks variables of `type`/`name` as changed (unknown: all of them). */
+    /**
+     * Marks variables of `type`/`name` as changed (unknown: all of them).
+     * Only names that have had a leaderboard are counted: bots often build
+     * names from IDs (`warn_<user>`), and counting every name ever written
+     * would grow without end.
+     */
     private static touch(type?: string, name?: string) {
         DataBase.writeSeq++
         if (type !== undefined && name !== undefined) {
             const key = `${type}\u0000${name}`
-            DataBase.generations.set(key, (DataBase.generations.get(key) ?? 0) + 1)
+            const current = DataBase.generations.get(key)
+            if (current !== undefined) DataBase.generations.set(key, current + 1)
         } else DataBase.globalGeneration++
     }
 
+    /** The change counter of a leaderboard's variable; starts counting it if needed. */
     private static generation(type: string, name: string) {
-        return DataBase.generations.get(`${type}\u0000${name}`) ?? 0
+        const key = `${type}\u0000${name}`
+        let current = DataBase.generations.get(key)
+        if (current === undefined) {
+            if (DataBase.generations.size >= MAX_TRACKED_NAMES) {
+                // Start over; cached leaderboards are rebuilt once.
+                DataBase.generations.clear()
+                DataBase.globalGeneration++
+            }
+            current = 0
+            DataBase.generations.set(key, current)
+        }
+        return current
     }
 
     /** One record by identifier. */
@@ -616,40 +653,65 @@ export class DataBase extends DataBaseManager {
         return DataBase.op("getAll", "*", async (db) => (await DataBase.records(db).find()) as SQLiteRecord[])
     }
 
-    /** Converts `Like()` operators for MongoDB, which has no `LIKE`. */
-    private static where(filter: Record<string, unknown>) {
+    /**
+     * Turns a filter into the database's `where`, plus checks to run on the
+     * rows it returns. `LIKE` patterns are normalized (see `normalizeLike`).
+     * MongoDB has no `LIKE`: it is sent only the pattern's literal prefix,
+     * and the pattern itself is matched here (a regular expression for it
+     * could take exponential time on the database server).
+     */
+    private static where(filter: Record<string, unknown>): { where: Record<string, unknown>; checks: Array<(row: Record<string, unknown>) => boolean> } {
         const where: Record<string, unknown> = {}
+        const checks: Array<(row: Record<string, unknown>) => boolean> = []
         for (const [key, value] of Object.entries(filter)) {
             if (value === undefined) continue
-            if (DataBase.mongo && value instanceof FindOperator) {
-                if (value.type === "like") where[key] = likeToRegExp(String(value.value))
-                else if (value.type === "in") where[key] = { $in: value.value }
-                else where[key] = value.value
+            if (value instanceof FindOperator && value.type === "like") {
+                let pattern: string
+                try {
+                    pattern = normalizeLike(String(value.value))
+                } catch (err) {
+                    throw new ReForgeDBError(errorMessage(err))
+                }
+                if (!DataBase.mongo) {
+                    where[key] = Like(pattern)
+                    continue
+                }
+                const prefix = likePrefix(pattern)
+                if (prefix) where[key] = new RegExp(`^${escapeRegExp(prefix)}`, "i")
+                const matches = likeMatcher(pattern)
+                checks.push((row) => matches(row[key]))
+            } else if (DataBase.mongo && value instanceof FindOperator) {
+                where[key] = value.type === "in" ? { $in: value.value } : value.value
             } else where[key] = value
         }
-        return where
+        return { where, checks }
+    }
+
+    private static async findWhere(db: DataSource, filter: Record<string, unknown>) {
+        const { where, checks } = DataBase.where(filter)
+        const rows = (await DataBase.records(db).find({ where })) as SQLiteRecord[]
+        return checks.length ? rows.filter((row) => checks.every((check) => check(row as unknown as Record<string, unknown>))) : rows
     }
 
     /** Variables whose columns equal the given values (`Like()` operators are allowed). */
     public static async find(data?: RecordData | Record<string, unknown>): Promise<SQLiteRecord[]> {
-        const where = DataBase.where({ ...(data ?? {}) })
-        return DataBase.op("find", JSON.stringify(where), async (db) => (await DataBase.records(db).find({ where })) as SQLiteRecord[])
+        const filter = { ...(data ?? {}) } as Record<string, unknown>
+        return DataBase.op("find", JSON.stringify(filter), (db) => DataBase.findWhere(db, filter))
     }
 
-    private static searchWhere(filter: SearchFilter) {
+    private static searchFilter(filter: SearchFilter) {
         const where: Record<string, unknown> = {}
         if (filter.name !== undefined) where.name = Like(filter.name)
         if (filter.id !== undefined) where.id = filter.id
         if (filter.type !== undefined) where.type = filter.type
         if (filter.value !== undefined) where.value = Like(filter.value)
         if (filter.guildId !== undefined) where.guildId = filter.guildId
-        return DataBase.where(where)
+        return where
     }
 
     /** Variables matching a filter, with `LIKE` patterns for name and value. */
     public static async search(filter: SearchFilter): Promise<SQLiteRecord[]> {
-        const where = DataBase.searchWhere(filter)
-        return DataBase.op("search", JSON.stringify(filter), async (db) => (await DataBase.records(db).find({ where })) as SQLiteRecord[])
+        return DataBase.op("search", JSON.stringify(filter), (db) => DataBase.findWhere(db, DataBase.searchFilter(filter)))
     }
 
     /** Deletes a variable. `variableDelete` is emitted only when it existed. */
@@ -697,8 +759,9 @@ export class DataBase extends DataBaseManager {
      */
     public static async deleteMatching(filter: SearchFilter): Promise<number> {
         if (!Object.values(filter).some((v) => v !== undefined)) throw new ReForgeDBError("deleteMatching needs at least one filter (use wipe() to delete everything)")
-        if (DataBase.listening("variableDelete")) return DataBase.deleteMany(await DataBase.search(filter))
-        const where = DataBase.searchWhere(filter)
+        const { where, checks } = DataBase.where(DataBase.searchFilter(filter))
+        // Rows are read first when events need them, or when the database cannot match the filter itself.
+        if (DataBase.listening("variableDelete") || checks.length) return DataBase.deleteMany(await DataBase.search(filter))
         return DataBase.op("deleteMatching", JSON.stringify(filter), async (db) => {
             const result = DataBase.mongo ? await db.getMongoRepository(DataBase.entities.Record).deleteMany(where) : await DataBase.records(db).delete(where)
             DataBase.touch()
@@ -807,14 +870,56 @@ export class DataBase extends DataBaseManager {
      * cooldown was started, or the ms left when it was already running.
      */
     public static async cdClaim(data: { name: string; id?: string; duration: number }): Promise<number> {
-        DataBase.checkDuration(data.duration)
+        const duration = DataBase.checkDuration(data.duration)
         const identifier = DataBase.make_cdIdentifier(data)
+        // Claims in this process queue up here, so they do not race in the
+        // database for nothing. Across processes the write below decides.
         return DataBase.locks.run(`cooldown\u0000${identifier}`, async () => {
-            const { left } = await DataBase.cdTimeLeft(identifier)
-            if (left > 0) return left
-            await DataBase.cdAdd(data)
-            return 0
+            const current = await DataBase.cdTimeLeft(identifier)
+            if (current.left > 0) return current.left
+            const cd = { identifier, name: data.name, id: data.id, startedAt: Date.now(), duration }
+            const claimed = await DataBase.op("cooldown claim", identifier, (db) => DataBase.claimInDatabase(db, cd, current.identifier !== undefined))
+            if (claimed) return 0
+            // Another process started it between the read and the write.
+            return (await DataBase.cdTimeLeft(identifier)).left
         })
+    }
+
+    /**
+     * Starts a cooldown only if it is still free in the database: one that
+     * exists is restarted only if it has run out, a new one is inserted only
+     * if nobody inserted it first. `true` when this call started it.
+     */
+    private static async claimInDatabase(db: DataSource, cd: { identifier: string; name: string; id?: string; startedAt: number; duration: number }, existed: boolean): Promise<boolean> {
+        if (DataBase.mongo) {
+            const repo = db.getMongoRepository(DataBase.entities.Cooldown)
+            if (existed) {
+                const expired = { $expr: { $lte: [{ $add: ["$startedAt", "$duration"] }, cd.startedAt] } }
+                const result = await repo.updateOne({ identifier: cd.identifier, ...expired }, { $set: defined({ startedAt: cd.startedAt, duration: cd.duration, name: cd.name, id: cd.id }) })
+                return result.matchedCount === 1
+            }
+            try {
+                await repo.insertOne(defined(cd))
+                return true
+            } catch (err) {
+                // The unique index refused a second document: someone else was first.
+                if ((err as { code?: number })?.code === 11000) return false
+                throw err
+            }
+        }
+        if (!DataBase.sql) {
+            await DataBase.cooldowns(db).upsert(cd, { conflictPaths: ["identifier"], skipUpdateIfNoValuesChanged: false })
+            return true
+        }
+        const runner = db.createQueryRunner()
+        try {
+            const result = existed
+                ? await runner.query(DataBase.sql.claimExpiredCooldown, [cd.startedAt, cd.duration, cd.name, cd.id ?? null, cd.identifier, cd.startedAt], true)
+                : await runner.query(DataBase.sql.claimNewCooldown, row(cd, COOLDOWN_COLUMNS), true)
+            return (result.affected ?? 0) > 0
+        } finally {
+            await runner.release()
+        }
     }
 
     /** Deletes every cooldown. */

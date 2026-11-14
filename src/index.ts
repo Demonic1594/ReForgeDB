@@ -9,6 +9,20 @@ export type TransformEvents<T> = {
     [P in keyof T]: T[P] extends any[] ? (...args: T[P]) => any : never
 }
 
+/**
+ * The read cache is only correct when one process writes the database. A bot
+ * split over several processes (sharding) is the common way to break that.
+ */
+function warnIfSharded(client: ForgeClient) {
+    const { shards, shardCount } = client.options as { shards?: unknown; shardCount?: unknown }
+    const partial = Array.isArray(shards) && typeof shardCount === "number" && shards.length < shardCount
+    if (client.shard || partial) {
+        ReForgeDBLogger.warn(
+            "The cache option is on, but this bot runs in several processes (sharding). A variable written by one process is not seen by the others until its cached copy expires. Turn cache off, or give it a short ttl."
+        )
+    }
+}
+
 /** A default value given to `ReForgeDB.variables()`. Strings are ForgeScript code. */
 export type VariableDefault = string | number | boolean | null | object
 
@@ -52,6 +66,8 @@ export class ReForgeDB extends ForgeExtension {
         client.db = DataBase
 
         if (this.options?.events?.length) client.events.load(EVENT_HANDLER_NAME, this.options.events)
+
+        if (this.options?.cache) warnIfSharded(client)
 
         // Connects in the background with retries; never rejects.
         void new DataBase(this.emitter, this.options).init()

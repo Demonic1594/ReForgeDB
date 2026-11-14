@@ -147,8 +147,14 @@ export declare class DataBase extends DataBaseManager {
     private static listening;
     /** Emits an event; a listener that throws is logged, never breaks the write. */
     private static emit;
-    /** Marks variables of `type`/`name` as changed (unknown: all of them). */
+    /**
+     * Marks variables of `type`/`name` as changed (unknown: all of them).
+     * Only names that have had a leaderboard are counted: bots often build
+     * names from IDs (`warn_<user>`), and counting every name ever written
+     * would grow without end.
+     */
     private static touch;
+    /** The change counter of a leaderboard's variable; starts counting it if needed. */
     private static generation;
     /** One record by identifier. */
     private static readRecord;
@@ -172,11 +178,18 @@ export declare class DataBase extends DataBaseManager {
     static get(data: RecordData): Promise<SQLiteRecord | null>;
     /** Every stored variable. */
     static getAll(): Promise<SQLiteRecord[]>;
-    /** Converts `Like()` operators for MongoDB, which has no `LIKE`. */
+    /**
+     * Turns a filter into the database's `where`, plus checks to run on the
+     * rows it returns. `LIKE` patterns are normalized (see `normalizeLike`).
+     * MongoDB has no `LIKE`: it is sent only the pattern's literal prefix,
+     * and the pattern itself is matched here (a regular expression for it
+     * could take exponential time on the database server).
+     */
     private static where;
+    private static findWhere;
     /** Variables whose columns equal the given values (`Like()` operators are allowed). */
     static find(data?: RecordData | Record<string, unknown>): Promise<SQLiteRecord[]>;
-    private static searchWhere;
+    private static searchFilter;
     /** Variables matching a filter, with `LIKE` patterns for name and value. */
     static search(filter: SearchFilter): Promise<SQLiteRecord[]>;
     /** Deletes a variable. `variableDelete` is emitted only when it existed. */
@@ -236,6 +249,12 @@ export declare class DataBase extends DataBaseManager {
         id?: string;
         duration: number;
     }): Promise<number>;
+    /**
+     * Starts a cooldown only if it is still free in the database: one that
+     * exists is restarted only if it has run out, a new one is inserted only
+     * if nobody inserted it first. `true` when this call started it.
+     */
+    private static claimInDatabase;
     /** Deletes every cooldown. */
     static cdWipe(): Promise<void | import("typeorm/driver/mongodb/typings").DeleteResult>;
     /** Deletes cooldowns that have run out. Returns how many were deleted. */

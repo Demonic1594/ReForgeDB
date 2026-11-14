@@ -12,13 +12,20 @@ export declare class KeyedMutex {
 /**
  * A bounded least-recently-used map with an optional time to live. A `Map`
  * keeps insertion order, so re-inserting on access makes the first key the
- * least recently used one.
+ * least recently used one. With `maxWeight`, the total `weigh(value)` of the
+ * entries is bounded too (an entry heavier than it is not kept at all).
  */
 export declare class LRUCache<K, V> {
     readonly max: number;
     readonly ttl: number;
+    readonly maxWeight: number;
+    private readonly weigh;
     private readonly map;
-    constructor(max: number, ttl?: number);
+    private totalWeight;
+    constructor(max: number, ttl?: number, maxWeight?: number, weigh?: (value: V) => number);
+    /** The total weight of the entries. */
+    get weight(): number;
+    private remove;
     get(key: K): {
         value: V;
     } | undefined;
@@ -29,12 +36,25 @@ export declare class LRUCache<K, V> {
 }
 /** Splits an array into chunks of at most `size` items. */
 export declare function chunk<T>(items: T[], size: number): T[][];
+/** Longest `LIKE` pattern accepted, in characters. */
+export declare const MAX_LIKE_LENGTH = 1000;
 /**
- * Turns a SQL `LIKE` pattern (`%` any text, `_` one character) into an
- * anchored, case-insensitive regular expression for MongoDB, which has no
- * `LIKE`. Everything else is matched literally.
+ * Makes a `LIKE` pattern safe to run: a run of `%` matches the same as one
+ * `%`, so it is collapsed (some engines backtrack once per `%`), and
+ * patterns longer than `MAX_LIKE_LENGTH` are refused.
  */
-export declare function likeToRegExp(pattern: string): RegExp;
+export declare function normalizeLike(pattern: string): string;
+/** The literal text a `LIKE` pattern starts with (before its first `%` or `_`). */
+export declare function likePrefix(pattern: string): string;
+/**
+ * A matcher for a SQL `LIKE` pattern (`%` any text, `_` one character,
+ * case-insensitive), for MongoDB, which has no `LIKE`. A regular expression
+ * for it backtracks exponentially on patterns like `%a%a%a%b` and runs on
+ * the database server; this greedy matcher takes linear time per wildcard.
+ */
+export declare function likeMatcher(pattern: string): (text: unknown) => boolean;
+/** Escapes text for use inside a regular expression. */
+export declare function escapeRegExp(text: string): string;
 /**
  * Orders Discord IDs (numeric strings) by their numeric value without
  * BigInt, and anything else as text. Used to break leaderboard ties the same

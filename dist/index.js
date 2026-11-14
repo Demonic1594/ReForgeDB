@@ -7,6 +7,17 @@ const util_1 = require("./util");
 const structures_1 = require("./structures");
 const pkg = require("../package.json");
 /**
+ * The read cache is only correct when one process writes the database. A bot
+ * split over several processes (sharding) is the common way to break that.
+ */
+function warnIfSharded(client) {
+    const { shards, shardCount } = client.options;
+    const partial = Array.isArray(shards) && typeof shardCount === "number" && shards.length < shardCount;
+    if (client.shard || partial) {
+        util_1.ReForgeDBLogger.warn("The cache option is on, but this bot runs in several processes (sharding). A variable written by one process is not seen by the others until its cached copy expires. Turn cache off, or give it a short ttl.");
+    }
+}
+/**
  * ReForgeDB: variables, leaderboards and cooldowns for ForgeScript, stored in
  * SQLite, better-sqlite3, MySQL/MariaDB, PostgreSQL or MongoDB.
  *
@@ -42,6 +53,8 @@ class ReForgeDB extends forgescript_1.ForgeExtension {
         client.db = util_1.DataBase;
         if (this.options?.events?.length)
             client.events.load(structures_1.EVENT_HANDLER_NAME, this.options.events);
+        if (this.options?.cache)
+            warnIfSharded(client);
         // Connects in the background with retries; never rejects.
         void new util_1.DataBase(this.emitter, this.options).init();
     }
