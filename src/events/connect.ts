@@ -1,13 +1,14 @@
 import { Interpreter } from "@tryforge/forgescript"
-import { ForgeDB } from ".."
-import { DBEventHandler } from "../structures/eventManager"
+import { ReForgeDB } from ".."
+import { ReForgeDBEventHandler } from "../structures/eventManager"
+import { ReForgeDBLogger } from "../util/logger"
 
-export default new DBEventHandler({
+export default new ReForgeDBEventHandler({
     name: "connect",
     version: "2.0.0",
-    description: "This event is triggered when ForgeDB is connected with ForgeScript",
+    description: "This event is triggered when ReForgeDB has connected to the database",
     listener() {
-        const commands = this.getExtension(ForgeDB, true).commands.get("connect")
+        const commands = this.getExtension(ReForgeDB, true).commands.get("connect")
 
         for (const command of commands) {
             Interpreter.run({
@@ -15,7 +16,7 @@ export default new DBEventHandler({
                 client: this,
                 command,
                 data: command.compiled.code,
-            })
+            }).catch((err) => ReForgeDBLogger.error(`The connect command "${command.name ?? "unnamed"}" failed:`, err))
         }
     },
 })

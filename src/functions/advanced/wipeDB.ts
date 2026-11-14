@@ -1,16 +1,18 @@
-import { ArgType, NativeFunction } from "@tryforge/forgescript"
+import { NativeFunction } from "@tryforge/forgescript"
 import { DataBase } from "../../util"
+import { guarded } from "../../util/functions"
 
 export default new NativeFunction({
     name: "$wipeDB",
     version: "2.0.8",
     aliases: ["$deleteDB", "$clearDB"],
-    description: "Wipes all the data stored in the database including cooldowns",
-    output: ArgType.Json,
+    description: "Deletes every variable and every cooldown in the database",
     unwrap: false,
-    async execute(_ctx) {
-        await DataBase.wipe()
-        await DataBase.cdWipe()
-        return this.success()
+    async execute() {
+        return guarded(this, async () => {
+            await DataBase.wipe()
+            await DataBase.cdWipe()
+            return this.success()
+        })
     },
 })

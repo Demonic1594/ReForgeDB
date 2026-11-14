@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const forgescript_1 = require("@tryforge/forgescript");
 const util_1 = require("../../util");
+const functions_1 = require("../../util/functions");
 exports.default = new forgescript_1.NativeFunction({
     name: "$setChannelVar",
     version: "2.0.0",
@@ -24,16 +25,19 @@ exports.default = new forgescript_1.NativeFunction({
         },
         {
             name: "channel ID",
-            description: "The channel ID for which to set the variable value",
+            description: "The channel ID, defaults to the channel of the command",
             rest: false,
-            type: forgescript_1.ArgType.Channel,
+            type: forgescript_1.ArgType.String,
             required: false,
         },
     ],
     brackets: true,
     async execute(ctx, [name, value, channel]) {
-        await util_1.DataBase.set({ name, id: channel?.id ?? ctx.channel.id, value, type: "channel", guildId: channel?.guild.id ?? ctx.guild?.id });
-        return this.success();
+        return (0, functions_1.guarded)(this, async () => {
+            const { id, guildId } = await (0, functions_1.channelScope)(ctx, channel);
+            await util_1.DataBase.set({ name, id, value, type: "channel", guildId });
+            return this.success();
+        });
     },
 });
 //# sourceMappingURL=setChannelVar.js.map

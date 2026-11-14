@@ -1,5 +1,6 @@
-import { ArgType, IExtendedCompiledFunctionField, NativeFunction, Return } from "@tryforge/forgescript"
-import { DataBase, SortType } from "../../util"
+import { ArgType, NativeFunction } from "@tryforge/forgescript"
+import { SortType } from "../../util"
+import { guarded, renderLeaderboard } from "../../util/functions"
 
 export default new NativeFunction({
     name: "$memberLeaderboard",
@@ -18,39 +19,39 @@ export default new NativeFunction({
         },
         {
             name: "guild ID",
-            description: "The guild ID for which to retrieve the variable of members",
+            description: "The guild ID, defaults to the guild of the command",
             rest: false,
             type: ArgType.Guild,
             required: false,
         },
         {
             name: "sort type",
-            description: "The sort order for the leaderboard, either ascending (asc) or descending (desc)",
+            description: "The sort order for the leaderboard, either ascending (asc) or descending (desc, the default)",
             rest: false,
             type: ArgType.Enum,
             enum: SortType,
         },
         {
             name: "max",
-            description: "The maximum number of rows per page",
+            description: "The maximum number of rows per page, defaults to 10",
             rest: false,
             type: ArgType.Number,
         },
         {
             name: "page",
-            description: "The page number",
+            description: "The page number, defaults to 1",
             rest: false,
             type: ArgType.Number,
         },
         {
             name: "separator",
-            description: "The separator to use for each row",
+            description: "The separator to use for each row, defaults to a new line",
             rest: false,
             type: ArgType.String,
         },
         {
             name: "envValue",
-            description: "The variable name to use for $env, retrieve the id with $env[<name>;id] and the value with $env[<name>;value]",
+            description: "The variable name to use for $env, retrieve the id with $env[<name>;id], the value with $env[<name>;value] and the name with $env[<name>;username]",
             rest: false,
             required: false,
             type: ArgType.String,
@@ -71,47 +72,13 @@ export default new NativeFunction({
         },
     ],
     async execute(ctx) {
-        const [name, guild, sortType, max, page, separator, valueVariable, positionVariable, code] = this.data.fields as IExtendedCompiledFunctionField[]
-
-        const nameV = (await this["resolveCode"](ctx, name)) as Return
-        if (!this["isValidReturnType"](nameV)) return nameV
-
-        const guildID = (await this["resolveCode"](ctx, guild)) as Return
-        if (!this["isValidReturnType"](guildID)) return guildID
-
-        const sortTypeV = (await this["resolveCode"](ctx, sortType)) as Return
-        if (!this["isValidReturnType"](sortTypeV)) return sortTypeV
-
-        const maxV = (await this["resolveCode"](ctx, max)) as Return
-        if (!this["isValidReturnType"](maxV)) return maxV
-
-        const pageV = (await this["resolveCode"](ctx, page)) as Return
-        if (!this["isValidReturnType"](pageV)) return pageV
-
-        const separatorV = (await this["resolveCode"](ctx, separator)) as Return
-        if (!this["isValidReturnType"](separatorV)) return separatorV
-
-        const limit = Number(maxV.value) || 10
-        const pag = Number(pageV.value) || 1
-
-        const elements = new Array<string>()
-        const rows = await DataBase.find({ name: nameV.value as string, type: "member", guildId: (guildID.value as string) ?? ctx.guild!.id })
-            .then((x) => x.sort((x, y) => (sortTypeV?.value === "asc" ? Number(x.value) - Number(y.value) : Number(y.value) - Number(x.value))))
-            .then((x) => x.slice(pag * limit - limit, pag * limit))
-
-        for (let i = 0, len = rows.length; i < len; i++) {
-            const index = pag * limit - limit + i + 1
-            const row = rows[i]
-            const username = ctx.client.guilds.cache.get((guildID.value as string) ?? ctx.guild!.id)?.members.cache.get(row.id)?.user.username
-
-            const info = { username, ...row }
-            ctx.setEnvironmentKey(positionVariable?.value || "", index)
-            ctx.setEnvironmentKey(valueVariable?.value || "", info)
-            if (!code) elements.push(`${index}. ${username} ~ ${row.value}`)
-            const execution = (await this["resolveCode"](ctx, code)) as Return
-            if (execution.value) elements.push(execution.value as string)
-        }
-
-        return this.success(elements.join((separatorV?.value as string) || "\n"))
+        return guarded(this, () =>
+            renderLeaderboard(this, ctx, {
+                type: "member",
+                fields: { name: 0, guild: 1, sort: 2, max: 3, page: 4, separator: 5, envValue: 6, envPosition: 7, code: 8 },
+                labelKey: "username",
+                label: (c, id, guildId) => (guildId ? c.client.guilds.cache.get(guildId)?.members.cache.get(id)?.user.username : undefined) ?? c.client.users.cache.get(id)?.username,
+            })
+        )
     },
 })

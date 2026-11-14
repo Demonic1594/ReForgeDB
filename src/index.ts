@@ -1,57 +1,132 @@
 import { Compiler, EventManager, ForgeClient, ForgeExtension, IExtendedCompilationResult } from "@tryforge/forgescript"
-import { DataBase, IDataBaseOptions } from "./util"
-import { DBCommandManager, IDBEvents } from "./structures"
 import { TypedEmitter } from "tiny-typed-emitter"
+import { DataBase, ReForgeDBLogger, errorMessage, IReForgeDBOptions, ReForgeDBError, resolveSettings } from "./util"
+import { ReForgeDBCommandManager, EVENT_HANDLER_NAME, IReForgeDBEvents } from "./structures"
+
+const pkg = require("../package.json") as { version: string; description: string }
 
 export type TransformEvents<T> = {
     [P in keyof T]: T[P] extends any[] ? (...args: T[P]) => any : never
 }
 
-export class ForgeDB extends ForgeExtension {
-    public static defaults?: Record<PropertyKey, IExtendedCompilationResult | unknown>
+/**
+ * The read cache is only correct when one process writes the database. A bot
+ * split over several processes (sharding) is the common way to break that.
+ */
+function warnIfSharded(client: ForgeClient) {
+    const { shards, shardCount } = client.options as { shards?: unknown; shardCount?: unknown }
+    const partial = Array.isArray(shards) && typeof shardCount === "number" && shards.length < shardCount
+    if (client.shard || partial) {
+        ReForgeDBLogger.warn(
+            "The cache option is on, but this bot runs in several processes (sharding). A variable written by one process is not seen by the others until its cached copy expires. Turn cache off, or give it a short ttl."
+        )
+    }
+}
 
-    name: string = "forge.db"
-    description: string = "A fast and reliable database extension for ForgeScript."
-    version: string = require("../package.json").version
+/** A default value given to `ReForgeDB.variables()`. Strings are ForgeScript code. */
+export type VariableDefault = string | number | boolean | null | object
 
-    public commands!: any
-    public emitter = new TypedEmitter<TransformEvents<IDBEvents>>()
+/**
+ * ReForgeDB: variables, leaderboards and cooldowns for ForgeScript, stored in
+ * SQLite, better-sqlite3, MySQL/MariaDB, PostgreSQL or MongoDB.
+ *
+ * @example
+ * const client = new ForgeClient({
+ *     extensions: [new ReForgeDB({ type: "better-sqlite3", events: ["variableUpdate"] })],
+ * })
+ */
+export class ReForgeDB extends ForgeExtension {
+    /** Name this extension registers under, for `requireExtensions` of other extensions. */
+    public static readonly extensionName = "reforge.db"
 
-    public constructor(public readonly options?: IDataBaseOptions) {
+    private static rawDefaults: Record<string, VariableDefault> = {}
+    private static compiledDefaults = new Map<string, IExtendedCompilationResult>()
+
+    name: string = ReForgeDB.extensionName
+    description: string = pkg.description
+    version: string = pkg.version
+
+    public commands!: ReForgeDBCommandManager
+    public emitter = new TypedEmitter<TransformEvents<IReForgeDBEvents>>()
+
+    public constructor(public readonly options?: IReForgeDBOptions) {
         super()
+        // Fail at start-up with a clear message, not on the first command.
+        resolveSettings(options)
+        if (options?.logLevel) ReForgeDBLogger.level = options.logLevel
     }
 
     init(client: ForgeClient): void {
-        this.commands = new DBCommandManager(client)
+        this.commands = new ReForgeDBCommandManager(client)
 
-        EventManager.load('ForgeDBEvents', __dirname + '/events')
+        EventManager.load(EVENT_HANDLER_NAME, __dirname + "/events")
         this.load(__dirname + "/functions")
 
-        new DataBase(this.emitter, this.options).init()
+        // Kept from ForgeDB: other code (QuorielDB's transfer, extensions) uses client.db.
         client.db = DataBase
 
-        if (this.options?.events?.length)
-            client.events.load("ForgeDBEvents", this.options.events)
+        if (this.options?.events?.length) client.events.load(EVENT_HANDLER_NAME, this.options.events)
+
+        if (this.options?.cache) warnIfSharded(client)
+
+        // Connects in the background with retries; never rejects.
+        void new DataBase(this.emitter, this.options).init()
     }
 
-    public variables(rec: Record<PropertyKey, unknown>) {
-        ForgeDB.variables(rec)
+    /** Resolves once the database is connected (rejects after `timeout` ms). */
+    public static ready(timeout?: number) {
+        return DataBase.ready(timeout)
     }
 
-    public static variables(rec: Record<PropertyKey, unknown>) {
-        ForgeDB.defaults = ForgeDB.compileVariables(rec)
+    /**
+     * Declares default values, used when a variable is read but was never
+     * set (and the function call gives no default). Strings are ForgeScript
+     * code and run in the reading command's context, so `"$username"` works.
+     * Each call replaces the previous defaults.
+     */
+    public variables(rec: Record<string, VariableDefault>) {
+        ReForgeDB.variables(rec)
     }
 
-    private static compileVariables(rec: Record<PropertyKey, unknown>) {
-        const obj = {} as Record<PropertyKey, IExtendedCompilationResult | unknown>
-        for (const [key, value] of Object.entries(rec)) {
-            if (typeof value === "string") {
-                obj[key] = Compiler.compile(value)
-            } else {
-                obj[key] = value
+    public static variables(rec: Record<string, VariableDefault>) {
+        if (!rec || typeof rec !== "object") throw new ReForgeDBError("ReForgeDB.variables() expects an object of name: default")
+        ReForgeDB.rawDefaults = { ...rec }
+        ReForgeDB.compiledDefaults.clear()
+    }
+
+    /** The declared defaults, as given to `variables()`. */
+    public static get defaults(): Readonly<Record<string, VariableDefault>> {
+        return ReForgeDB.rawDefaults
+    }
+
+    /** Whether a default was declared for `name`. */
+    public static hasDefault(name: string) {
+        return Object.prototype.hasOwnProperty.call(ReForgeDB.rawDefaults, name)
+    }
+
+    /**
+     * The default for `name`: compiled ForgeScript for strings (compiled on
+     * first use, once every extension's functions are registered), or the
+     * value itself.
+     */
+    public static defaultFor(name: string): { code: IExtendedCompilationResult } | { value: unknown } | undefined {
+        if (!ReForgeDB.hasDefault(name)) return undefined
+        const raw = ReForgeDB.rawDefaults[name]
+        if (typeof raw !== "string") return { value: raw }
+        let code = ReForgeDB.compiledDefaults.get(name)
+        if (!code) {
+            try {
+                code = Compiler.compile(raw)
+            } catch (err) {
+                throw new ReForgeDBError(`The default of variable "${name}" is not valid ForgeScript: ${errorMessage(err)}`, err)
             }
+            ReForgeDB.compiledDefaults.set(name, code)
         }
-        return obj
+        return { code }
     }
 }
-export { DataBaseManager } from './util'
+
+export { DataBaseManager, DataBase, Leaderboard, ReForgeDBError, ReForgeDBLogger } from "./util"
+export type { IReForgeDBOptions, IDataBaseOptions, LogLevel, SearchFilter, LeaderboardQuery, LeaderboardEntry, StoredRecord, RecordData } from "./util"
+export { EVENT_HANDLER_NAME } from "./structures"
+export type { IReForgeDBEvents } from "./structures"

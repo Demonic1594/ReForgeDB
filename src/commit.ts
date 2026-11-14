@@ -1,14 +1,13 @@
-import { execSync } from "child_process"
+import { execFileSync } from "child_process"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs"
 import { join } from "path"
-import { platform } from "os"
 import { stdin, stdout } from "process"
 import { createInterface } from "readline"
 
 export async function prompt(q: string) {
     const itf = createInterface(stdin, stdout)
-    return new Promise<string>(r => {
-        itf.question(q, input => {
+    return new Promise<string>((r) => {
+        itf.question(q, (input) => {
             itf.close()
             r(input)
         })
@@ -23,10 +22,10 @@ const version = require("../package.json").version
 async function main() {
     let skip = false
 
-    const msg = (await prompt("Please write the commit message: ")).replace(
-        /(--?(\w+))/gim, (match) => {
+    const msg = (await prompt("Please write the commit message: "))
+        .replace(/(--?(\w+))/gim, (match) => {
             const name = /(\w+)/.exec(match)![1].toLowerCase()
-        
+
             switch (name) {
                 case "hide": {
                     skip = true
@@ -39,30 +38,32 @@ async function main() {
             }
 
             return ""
-        } 
-    ).trim()
+        })
+        .trim()
 
     const fileName = join(path, "changelogs.json")
     const json: Record<string, object[]> = existsSync(fileName) ? JSON.parse(readFileSync(fileName, "utf-8")) : {}
     json[version] ??= []
-    const author = execSync("git config user.name").toString().trim()
+
     if (!skip) {
         json[version].unshift({
             message: msg,
             timestamp: new Date(),
-            author
+            author: execFileSync("git", ["config", "user.name"]).toString().trim(),
         })
         writeFileSync(fileName, JSON.stringify(json), "utf-8")
     }
 
-    const branch = await prompt("Write the branch name to push to (defaults to dev): ") || "dev"
-    let escapedMsg = msg
-    if (platform() === "darwin") escapedMsg = escapedMsg.replace(/\$/g, "\\$")
+    const branch = (await prompt("Write the branch name to push to (defaults to dev): ")) || "dev"
 
-    execSync("git branch -M " + branch + " && git add . && git commit -m \"" + escapedMsg + "\" && git push -u origin " + branch, {
-        stdio: "inherit"
-    })
+    // Arguments go to git as they are, never through a shell: a commit
+    // message or branch name with quotes, backticks or `$(...)` cannot run
+    // commands (ForgeDB built one shell command line out of them).
+    const git = (...args: string[]) => execFileSync("git", args, { stdio: "inherit" })
+    git("branch", "-M", branch)
+    git("add", ".")
+    git("commit", "-m", msg)
+    git("push", "-u", "origin", branch)
 }
 
-// Nothing
-main()
+if (require.main === module) main()

@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const forgescript_1 = require("@tryforge/forgescript");
 const util_1 = require("../../util");
+const functions_1 = require("../../util/functions");
 exports.default = new forgescript_1.NativeFunction({
     name: "$setGuildVar",
     version: "2.0.0",
@@ -25,7 +26,7 @@ exports.default = new forgescript_1.NativeFunction({
         },
         {
             name: "guild ID",
-            description: "The guild ID for which to set the variable value",
+            description: "The guild ID, defaults to the guild of the command",
             rest: false,
             type: forgescript_1.ArgType.String,
             required: false,
@@ -33,8 +34,10 @@ exports.default = new forgescript_1.NativeFunction({
     ],
     brackets: true,
     async execute(ctx, [name, value, guild]) {
-        await util_1.DataBase.set({ name, id: guild ?? ctx.guild.id, value, type: "guild" });
-        return this.success();
+        return (0, functions_1.guarded)(this, async () => {
+            await util_1.DataBase.set({ name, id: (0, functions_1.requireId)(guild, ctx.guild?.id, "guild ID"), value, type: "guild" });
+            return this.success();
+        });
     },
 });
 //# sourceMappingURL=setGuildVar.js.map

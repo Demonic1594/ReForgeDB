@@ -1,6 +1,6 @@
 import { ArgType, NativeFunction } from "@tryforge/forgescript"
-import { BaseGuildTextChannel } from "discord.js"
 import { DataBase } from "../../util"
+import { channelScope, guarded } from "../../util/functions"
 
 export default new NativeFunction({
     name: "$setChannelVar",
@@ -24,15 +24,18 @@ export default new NativeFunction({
         },
         {
             name: "channel ID",
-            description: "The channel ID for which to set the variable value",
+            description: "The channel ID, defaults to the channel of the command",
             rest: false,
-            type: ArgType.Channel,
+            type: ArgType.String,
             required: false,
         },
     ],
     brackets: true,
     async execute(ctx, [name, value, channel]) {
-        await DataBase.set({ name, id: channel?.id ?? ctx.channel!.id, value, type: "channel", guildId: (channel as BaseGuildTextChannel)?.guild.id ?? ctx.guild?.id })
-        return this.success()
+        return guarded(this, async () => {
+            const { id, guildId } = await channelScope(ctx, channel)
+            await DataBase.set({ name, id, value, type: "channel", guildId })
+            return this.success()
+        })
     },
 })

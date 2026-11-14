@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const forgescript_1 = require("@tryforge/forgescript");
 const util_1 = require("../../util");
+const functions_1 = require("../../util/functions");
 exports.default = new forgescript_1.NativeFunction({
     name: "$channelLeaderboard",
     version: "2.0.0",
@@ -19,48 +20,48 @@ exports.default = new forgescript_1.NativeFunction({
         },
         {
             name: "guild ID",
-            description: "The unique identifier of the guild for which you want to retrieve channel variables.",
+            description: "The guild ID of the channels, defaults to the guild of the command.",
             rest: false,
             type: forgescript_1.ArgType.Guild,
             required: false,
         },
         {
             name: "sort type",
-            description: "The sorting order for the leaderboard, either ascending (asc) or descending (desc).",
+            description: "The sorting order for the leaderboard, either ascending (asc) or descending (desc, the default).",
             rest: false,
             type: forgescript_1.ArgType.Enum,
             enum: util_1.SortType,
         },
         {
             name: "max",
-            description: "The maximum number of entries to display per page on the leaderboard.",
+            description: "The maximum number of entries per page, defaults to 10.",
             rest: false,
             type: forgescript_1.ArgType.Number,
         },
         {
             name: "page",
-            description: "The specific page number of the leaderboard you wish to view.",
+            description: "The page number, defaults to 1.",
             rest: false,
             type: forgescript_1.ArgType.Number,
         },
         {
             name: "separator",
-            description: "The separator to be utilized between each row in the leaderboard.",
+            description: "The separator between rows, defaults to a new line.",
             rest: false,
             type: forgescript_1.ArgType.String,
         },
         {
             name: "envValue",
-            description: "The variable name to employ for $env, facilitating the retrieval of identifiers and values using $env[<name>;id] and $env[<name>;value] respectively.",
+            description: "The variable name for $env: $env[<name>;id], $env[<name>;value] and $env[<name>;channel_name].",
             rest: false,
             required: false,
             type: forgescript_1.ArgType.String,
         },
         {
             name: "envPosition",
-            description: "The variable name utilized for $env to acquire the position using $env[<name>].",
-            required: false,
+            description: "The variable name for $env to get the position with $env[<name>].",
             rest: false,
+            required: false,
             type: forgescript_1.ArgType.String,
         },
         {
@@ -72,45 +73,12 @@ exports.default = new forgescript_1.NativeFunction({
         },
     ],
     async execute(ctx) {
-        const [name, guild, sortType, max, page, separator, valueVariable, positionVariable, code] = this.data.fields;
-        const nameV = (await this["resolveCode"](ctx, name));
-        if (!this["isValidReturnType"](nameV))
-            return nameV;
-        const guildID = (await this["resolveCode"](ctx, guild));
-        if (!this["isValidReturnType"](guildID))
-            return guildID;
-        const sortTypeV = (await this["resolveCode"](ctx, sortType));
-        if (!this["isValidReturnType"](sortTypeV))
-            return sortTypeV;
-        const maxV = (await this["resolveCode"](ctx, max));
-        if (!this["isValidReturnType"](maxV))
-            return maxV;
-        const pageV = (await this["resolveCode"](ctx, page));
-        if (!this["isValidReturnType"](pageV))
-            return pageV;
-        const separatorV = (await this["resolveCode"](ctx, separator));
-        if (!this["isValidReturnType"](separatorV))
-            return separatorV;
-        const limit = Number(maxV.value) || 10;
-        const pag = Number(pageV.value) || 1;
-        const elements = new Array();
-        const rows = await util_1.DataBase.find({ name: nameV.value, type: "channel", guildId: guildID.value ?? ctx.guild.id })
-            .then((x) => x.sort((x, y) => (sortTypeV?.value === "asc" ? Number(x.value) - Number(y.value) : Number(y.value) - Number(x.value))))
-            .then((x) => x.slice(pag * limit - limit, pag * limit));
-        for (let i = 0, len = rows.length; i < len; i++) {
-            const index = pag * limit - limit + i + 1;
-            const row = rows[i];
-            const channel_name = ctx.client.guilds.cache.get(guildID.value ?? ctx.guild.id)?.channels.cache.get(row.id)?.name;
-            const info = { channel_name, ...row };
-            ctx.setEnvironmentKey(positionVariable?.value || "", index);
-            ctx.setEnvironmentKey(valueVariable?.value || "", info);
-            if (!code)
-                elements.push(`${index}. ${channel_name} ~ ${row.value}`);
-            const execution = (await this["resolveCode"](ctx, code));
-            if (execution.value)
-                elements.push(execution.value);
-        }
-        return this.success(elements.join(separatorV?.value || "\n"));
+        return (0, functions_1.guarded)(this, () => (0, functions_1.renderLeaderboard)(this, ctx, {
+            type: "channel",
+            fields: { name: 0, guild: 1, sort: 2, max: 3, page: 4, separator: 5, envValue: 6, envPosition: 7, code: 8 },
+            labelKey: "channel_name",
+            label: (c, id) => c.client.channels.cache.get(id)?.name,
+        }));
     },
 });
 //# sourceMappingURL=channelLeaderboard.js.map

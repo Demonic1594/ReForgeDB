@@ -1,0 +1,150 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  sqlite:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      # Builds dist/, then runs every test file on SQLite (sqlite3).
+      - run: npm test
+      - name: Run the tests on better-sqlite3
+        run: |
+          npm i --no-save better-sqlite3
+          REFORGEDB_TEST_DB='{"type":"better-sqlite3"}' npm test
+      - run: npm run docgen
+      # dist/ and metadata/ are committed so the package installs straight
+      # from GitHub; fail if they don't match the sources.
+      - name: Check that dist/ and metadata/ are up to date
+        if: matrix.node == 22
+        run: git diff --exit-code -- dist metadata
+
+  # The oldest supported ForgeScript.
+  forgescript-2-5:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm i --no-save @tryforge/forgescript@2.5.0
+      - run: npm test
+
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: reforgedb_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm i --no-save pg
+      - run: npm test
+        env:
+          REFORGEDB_TEST_DB: '{"type":"postgres","host":"127.0.0.1","username":"postgres","password":"postgres","database":"reforgedb_test"}'
+
+  mariadb:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: reforgedb_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm i --no-save mysql2
+      # type "mysql" on purpose: the server is detected as MariaDB.
+      - run: npm test
+        env:
+          REFORGEDB_TEST_DB: '{"type":"mysql","host":"127.0.0.1","username":"root","password":"root","database":"reforgedb_test"}'
+
+  mysql:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: reforgedb_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm i --no-save mysql2
+      - run: npm test
+        env:
+          REFORGEDB_TEST_DB: '{"type":"mysql","host":"127.0.0.1","username":"root","password":"root","database":"reforgedb_test"}'
+
+  mongodb:
+    runs-on: ubuntu-latest
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # The mongodb driver is a devDependency.
+      - run: npm test
+        env:
+          REFORGEDB_TEST_DB: '{"type":"mongodb","url":"mongodb://127.0.0.1:27017/reforgedb_test"}'

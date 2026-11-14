@@ -1,8 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const forgescript_1 = require("@tryforge/forgescript");
-const util_1 = require("../../util");
-const __1 = require("../..");
+const functions_1 = require("../../util/functions");
 exports.default = new forgescript_1.NativeFunction({
     name: "$getMemberVar",
     version: "2.0.0",
@@ -19,21 +18,21 @@ exports.default = new forgescript_1.NativeFunction({
         },
         {
             name: "member ID",
-            description: "The member ID for which to retrieve the variable value",
+            description: "The member ID, defaults to the member of the command",
             rest: false,
             type: forgescript_1.ArgType.String,
             required: false,
         },
         {
             name: "guild ID",
-            description: "The guild ID to which the member belongs",
+            description: "The guild ID to which the member belongs, defaults to the guild of the command",
             rest: false,
             type: forgescript_1.ArgType.Guild,
             required: false,
         },
         {
             name: "default",
-            description: "The default value to return if the identifier doesn't exist in the variable",
+            description: "The value to return when the variable was never set",
             rest: false,
             required: false,
             type: forgescript_1.ArgType.String,
@@ -41,28 +40,10 @@ exports.default = new forgescript_1.NativeFunction({
     ],
     brackets: true,
     async execute(ctx, [name, member, guild, def]) {
-        const data = await util_1.DataBase.get({ name, id: member ?? ctx.member.id, type: "member", guildId: guild?.id ?? ctx.guild.id }).then((x) => x?.value);
-        if (data === null || data === undefined) {
-            if (def)
-                return this.successJSON(def);
-            else if (__1.ForgeDB.defaults && name in __1.ForgeDB.defaults) {
-                const defData = __1.ForgeDB.defaults[name];
-                if (typeof defData === "object" && defData !== null && "functions" in defData) {
-                    const d = defData;
-                    // Run
-                    const result = await forgescript_1.Interpreter.run(ctx.clone({
-                        data: d,
-                        allowTopLevelReturn: true,
-                        doNotSend: true,
-                        redirectErrorsToConsole: true,
-                    }));
-                    return result === null ? this.stop() : this.successJSON(result);
-                }
-                else
-                    return this.successJSON(defData);
-            }
-        }
-        return this.successJSON(data);
+        return (0, functions_1.guarded)(this, () => {
+            const id = (0, functions_1.requireId)(member, ctx.member?.id ?? (ctx.guild ? ctx.user?.id : undefined), "member ID");
+            return (0, functions_1.readVariable)(this, ctx, { name, id, type: "member", guildId: (0, functions_1.requireId)(guild, ctx.guild?.id, "guild ID") }, def);
+        });
     },
 });
 //# sourceMappingURL=getMemberVar.js.map

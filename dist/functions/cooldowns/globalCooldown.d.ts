@@ -16,6 +16,7 @@ declare const _default: NativeFunction<[{
     description: string;
     rest: false;
     type: ArgType.String;
+    required: false;
 }], false>;
 export default _default;
 //# sourceMappingURL=globalCooldown.d.ts.map

@@ -1,3 +1,4 @@
-import { generateMetadata } from "@tryforge/forgescript" 
+import { generateMetadata } from "@tryforge/forgescript"
+import { EVENT_HANDLER_NAME } from "./structures"
 
-generateMetadata(`${__dirname}/functions`, "functions", "ForgeDBEvents", undefined, undefined, `${__dirname}/events`)
+generateMetadata(`${__dirname}/functions`, "functions", EVENT_HANDLER_NAME, undefined, undefined, `${__dirname}/events`)

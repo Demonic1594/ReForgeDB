@@ -17,4 +17,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 __exportStar(require("./database"), exports);
 __exportStar(require("./types"), exports);
 __exportStar(require("./databaseManager"), exports);
+__exportStar(require("./logger"), exports);
+__exportStar(require("./primitives"), exports);
 //# sourceMappingURL=index.js.map

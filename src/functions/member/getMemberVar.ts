@@ -1,6 +1,5 @@
-import { ArgType, IExtendedCompilationResult, Interpreter, NativeFunction } from "@tryforge/forgescript"
-import { DataBase } from "../../util"
-import { ForgeDB } from "../.."
+import { ArgType, NativeFunction } from "@tryforge/forgescript"
+import { guarded, readVariable, requireId } from "../../util/functions"
 
 export default new NativeFunction({
     name: "$getMemberVar",
@@ -18,21 +17,21 @@ export default new NativeFunction({
         },
         {
             name: "member ID",
-            description: "The member ID for which to retrieve the variable value",
+            description: "The member ID, defaults to the member of the command",
             rest: false,
             type: ArgType.String,
             required: false,
         },
         {
             name: "guild ID",
-            description: "The guild ID to which the member belongs",
+            description: "The guild ID to which the member belongs, defaults to the guild of the command",
             rest: false,
             type: ArgType.Guild,
             required: false,
         },
         {
             name: "default",
-            description: "The default value to return if the identifier doesn't exist in the variable",
+            description: "The value to return when the variable was never set",
             rest: false,
             required: false,
             type: ArgType.String,
@@ -40,27 +39,9 @@ export default new NativeFunction({
     ],
     brackets: true,
     async execute(ctx, [name, member, guild, def]) {
-        const data = await DataBase.get({ name, id: member ?? ctx.member!.id, type: "member", guildId: guild?.id ?? ctx.guild!.id }).then((x) => x?.value)
-        if (data === null || data === undefined) {
-            if (def) return this.successJSON(def)
-            else if (ForgeDB.defaults && name in ForgeDB.defaults) {
-                const defData = ForgeDB.defaults[name]
-                if (typeof defData === "object" && defData !== null && "functions" in (defData as IExtendedCompilationResult)) {
-                    const d = <IExtendedCompilationResult>defData
-                    // Run
-                    const result = await Interpreter.run(
-                        ctx.clone({
-                            data: d,
-                            allowTopLevelReturn: true,
-                            doNotSend: true,
-                            redirectErrorsToConsole: true,
-                        })
-                    )
-                    return result === null ? this.stop() : this.successJSON(result)
-                } else return this.successJSON(defData)
-            }
-        }
-
-        return this.successJSON(data)
+        return guarded(this, () => {
+            const id = requireId(member, ctx.member?.id ?? (ctx.guild ? ctx.user?.id : undefined), "member ID")
+            return readVariable(this, ctx, { name, id, type: "member", guildId: requireId(guild, ctx.guild?.id, "guild ID") }, def)
+        })
     },
 })

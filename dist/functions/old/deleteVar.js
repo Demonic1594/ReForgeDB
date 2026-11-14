@@ -2,10 +2,11 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const forgescript_1 = require("@tryforge/forgescript");
 const util_1 = require("../../util");
+const functions_1 = require("../../util/functions");
 exports.default = new forgescript_1.NativeFunction({
     name: "$deleteVar",
     version: "1.0.0",
-    description: "Deletes a value from a variable",
+    description: "Deletes a value from a variable (legacy: prefer the typed functions such as $deleteUserVar)",
     unwrap: true,
     brackets: true,
     args: [
@@ -18,19 +19,17 @@ exports.default = new forgescript_1.NativeFunction({
         },
         {
             name: "id",
-            description: "The identifier of the value (a user, guild, channel, message, etc)",
+            description: "The identifier of the value",
             rest: false,
             type: forgescript_1.ArgType.String,
             required: true,
         },
     ],
     async execute(_ctx, [name, id]) {
-        await util_1.DataBase.delete({
-            type: "old",
-            id,
-            name,
+        return (0, functions_1.guarded)(this, async () => {
+            await util_1.DataBase.delete({ name, id, type: "old" });
+            return this.success();
         });
-        return this.success();
     },
 });
 //# sourceMappingURL=deleteVar.js.map

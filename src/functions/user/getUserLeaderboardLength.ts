@@ -1,10 +1,11 @@
 import { ArgType, NativeFunction } from "@tryforge/forgescript"
 import { DataBase } from "../../util"
+import { guarded, pagesOf } from "../../util/functions"
 
 export default new NativeFunction({
     name: "$getUserLeaderboardLength",
     version: "2.0.0",
-    description: "Returns the length of a user leaderboard",
+    description: "Returns the number of pages of a user leaderboard (users with a number value)",
     output: ArgType.Number,
     unwrap: true,
     args: [
@@ -17,7 +18,7 @@ export default new NativeFunction({
         },
         {
             name: "length",
-            description: "The length of users per page",
+            description: "The number of users per page, defaults to 1 (the number of users)",
             rest: false,
             type: ArgType.Number,
             required: false,
@@ -32,9 +33,9 @@ export default new NativeFunction({
     ],
     brackets: true,
     async execute(_ctx, [name, length, decimals]) {
-        const data = await DataBase.find({ name, type: "user" })
-        data.sort((a, b) => parseInt(a.value) - parseInt(b.value))
-        const number = data.length / (length ?? 1)
-        return this.success(decimals ? number : number % 1 ? Math.floor(number) + 1 : number)
+        return guarded(this, async () => {
+            const board = await DataBase.leaderboard({ type: "user", name })
+            return this.success(pagesOf(board.count, length, decimals))
+        })
     },
 })

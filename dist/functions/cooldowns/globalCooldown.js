@@ -1,17 +1,18 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const forgescript_1 = require("@tryforge/forgescript");
-const util_1 = require("../../util");
+const functions_1 = require("../../util/functions");
 exports.default = new forgescript_1.NativeFunction({
     name: "$globalCooldown",
+    aliases: ["$dbGlobalCooldown"],
     version: "2.0.0",
-    description: "Adds a cooldown to a command for a global",
+    description: "Starts a global cooldown stored in the database, or, while it is running, sends the code and stops the command ($env[time] holds the ms left)",
     brackets: true,
     unwrap: false,
     args: [
         {
             name: "name",
-            description: "The name of the command you are trying to add a cooldown",
+            description: "The name of the cooldown, e.g. the command name",
             rest: false,
             type: forgescript_1.ArgType.String,
             required: true,
@@ -25,31 +26,20 @@ exports.default = new forgescript_1.NativeFunction({
         },
         {
             name: "code",
-            description: "The code to execute if the cooldown is active",
+            description: "The code to send while the cooldown is running; $env[time] holds the ms left",
             rest: false,
             type: forgescript_1.ArgType.String,
+            required: false,
         },
     ],
     async execute(ctx) {
-        const [, , code] = this.data.fields;
-        const dur = await this["resolveUnhandledArg"](ctx, 1);
-        if (!this["isValidReturnType"](dur))
-            return dur;
-        const nameV = await this["resolveUnhandledArg"](ctx, 0);
-        if (!this["isValidReturnType"](nameV))
-            return nameV;
-        const cooldown = await util_1.DataBase.cdTimeLeft(util_1.DataBase.make_cdIdentifier({ name: nameV.value }));
-        if (cooldown.left !== 0) {
-            ctx.setEnvironmentKey("time", cooldown.left);
-            const content = await this["resolveCode"](ctx, code);
-            if (!this["isValidReturnType"](content))
-                return content;
-            ctx.container.content = content.value;
-            await ctx.container.send(ctx.obj);
-            return this.stop();
-        }
-        await util_1.DataBase.cdAdd({ name: nameV.value, duration: dur.value });
-        return this.success();
+        return (0, functions_1.guarded)(this, async () => {
+            const args = await (0, functions_1.resolveArgs)(this, ctx, [0, 1]);
+            if ("fail" in args)
+                return args.fail;
+            const [name, duration] = args.values;
+            return (0, functions_1.cooldownGate)(this, ctx, { name, duration }, 2);
+        });
     },
 });
 //# sourceMappingURL=globalCooldown.js.map

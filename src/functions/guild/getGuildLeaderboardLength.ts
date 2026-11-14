@@ -1,10 +1,11 @@
 import { ArgType, NativeFunction } from "@tryforge/forgescript"
 import { DataBase } from "../../util"
+import { guarded, pagesOf } from "../../util/functions"
 
 export default new NativeFunction({
     name: "$getGuildLeaderboardLength",
     version: "2.0.0",
-    description: "Retrieves the length of a guild leaderboard",
+    description: "Returns the number of pages of a guild leaderboard (guilds with a number value)",
     aliases: ["$getServerLeaderboardLength"],
     output: ArgType.Number,
     unwrap: true,
@@ -18,7 +19,7 @@ export default new NativeFunction({
         },
         {
             name: "length",
-            description: "The number of guilds per page",
+            description: "The number of guilds per page, defaults to 1 (the number of guilds)",
             rest: false,
             type: ArgType.Number,
             required: false,
@@ -33,9 +34,9 @@ export default new NativeFunction({
     ],
     brackets: true,
     async execute(_ctx, [name, length, decimals]) {
-        const data = await DataBase.find({ name, type: "guild" })
-        data.sort((a, b) => parseInt(a.value) - parseInt(b.value))
-        const number = data.length / (length ?? 1)
-        return this.success(decimals ? number : number % 1 ? Math.floor(number) + 1 : number)
+        return guarded(this, async () => {
+            const board = await DataBase.leaderboard({ type: "guild", name })
+            return this.success(pagesOf(board.count, length, decimals))
+        })
     },
 })

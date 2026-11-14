@@ -1,6 +1,5 @@
-import { ArgType, IExtendedCompilationResult, Interpreter, NativeFunction } from "@tryforge/forgescript"
-import { DataBase } from "../../util"
-import { ForgeDB } from "../.."
+import { ArgType, NativeFunction } from "@tryforge/forgescript"
+import { guarded, readVariable, requireId } from "../../util/functions"
 
 export default new NativeFunction({
     name: "$getUserVar",
@@ -18,14 +17,14 @@ export default new NativeFunction({
         },
         {
             name: "user ID",
-            description: "The identifier of the user.",
+            description: "The user ID, defaults to the user of the command.",
             rest: false,
             type: ArgType.String,
             required: false,
         },
         {
             name: "default value",
-            description: "The default value if the identifier doesn't exist in the variable.",
+            description: "The value to return when the variable was never set.",
             rest: false,
             required: false,
             type: ArgType.String,
@@ -33,27 +32,6 @@ export default new NativeFunction({
     ],
     brackets: true,
     async execute(ctx, [name, user, def]) {
-        const data = await DataBase.get({ name, id: user ?? ctx.user!.id, type: "user" }).then((x) => x?.value)
-        if (data === null || data === undefined) {
-            if (def) return this.successJSON(def)
-            else if (ForgeDB.defaults && name in ForgeDB.defaults) {
-                const defData = ForgeDB.defaults[name]
-                if (typeof defData === "object" && defData !== null && "functions" in (defData as IExtendedCompilationResult)) {
-                    const d = <IExtendedCompilationResult>defData
-                    // Run
-                    const result = await Interpreter.run(
-                        ctx.clone({
-                            data: d,
-                            allowTopLevelReturn: true,
-                            doNotSend: true,
-                            redirectErrorsToConsole: true,
-                        })
-                    )
-                    return result === null ? this.stop() : this.successJSON(result)
-                } else return this.successJSON(defData)
-            }
-        }
-
-        return this.successJSON(data)
+        return guarded(this, () => readVariable(this, ctx, { name, id: requireId(user, ctx.user?.id, "user ID"), type: "user" }, def))
     },
 })

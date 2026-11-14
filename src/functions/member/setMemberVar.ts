@@ -1,5 +1,6 @@
 import { ArgType, NativeFunction } from "@tryforge/forgescript"
 import { DataBase } from "../../util"
+import { guarded, requireId } from "../../util/functions"
 
 export default new NativeFunction({
     name: "$setMemberVar",
@@ -23,14 +24,14 @@ export default new NativeFunction({
         },
         {
             name: "member ID",
-            description: "The ID of the member",
+            description: "The ID of the member, defaults to the member of the command",
             rest: false,
             type: ArgType.String,
             required: false,
         },
         {
             name: "guild ID",
-            description: "The guild ID",
+            description: "The guild ID, defaults to the guild of the command",
             rest: false,
             type: ArgType.Guild,
             required: false,
@@ -38,7 +39,10 @@ export default new NativeFunction({
     ],
     brackets: true,
     async execute(ctx, [name, value, member, guild]) {
-        await DataBase.set({ name, id: member ?? ctx.member!.id, value, type: "member", guildId: guild?.id ?? ctx.guild!.id })
-        return this.success()
+        return guarded(this, async () => {
+            const id = requireId(member, ctx.member?.id ?? (ctx.guild ? ctx.user?.id : undefined), "member ID")
+            await DataBase.set({ name, id, value, type: "member", guildId: requireId(guild, ctx.guild?.id, "guild ID") })
+            return this.success()
+        })
     },
 })

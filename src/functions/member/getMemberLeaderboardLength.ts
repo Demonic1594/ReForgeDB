@@ -1,10 +1,11 @@
 import { ArgType, NativeFunction } from "@tryforge/forgescript"
 import { DataBase } from "../../util"
+import { guarded, pagesOf, requireId } from "../../util/functions"
 
 export default new NativeFunction({
     name: "$getMemberLeaderboardLength",
     version: "2.0.0",
-    description: "Retrieves the length of a member leaderboard",
+    description: "Returns the number of pages of a member leaderboard (members with a number value)",
     output: ArgType.Number,
     unwrap: true,
     args: [
@@ -17,14 +18,14 @@ export default new NativeFunction({
         },
         {
             name: "guild ID",
-            description: "The guild ID for which to retrieve the variable of members",
+            description: "The guild ID, defaults to the guild of the command",
             rest: false,
             type: ArgType.Guild,
             required: false,
         },
         {
             name: "length",
-            description: "The number of users per page",
+            description: "The number of members per page, defaults to 1 (the number of members)",
             rest: false,
             type: ArgType.Number,
             required: false,
@@ -39,9 +40,9 @@ export default new NativeFunction({
     ],
     brackets: true,
     async execute(ctx, [name, guild, length, decimals]) {
-        const data = await DataBase.find({ name, type: "member", guildId: guild?.id ?? ctx.guild!.id })
-        data.sort((a, b) => parseInt(a.value) - parseInt(b.value))
-        const number = data.length / (length ?? 1)
-        return this.success(decimals ? number : number % 1 ? Math.floor(number) + 1 : number)
+        return guarded(this, async () => {
+            const board = await DataBase.leaderboard({ type: "member", name, guildId: requireId(guild, ctx.guild?.id, "guild ID") })
+            return this.success(pagesOf(board.count, length, decimals))
+        })
     },
 })

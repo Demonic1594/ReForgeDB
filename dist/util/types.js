@@ -9,7 +9,8 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MongoCooldown = exports.MongoRecord = exports.Cooldown = exports.SQLiteRecord = exports.PostgreSQLRecord = exports.MySQLRecord = exports.VariableType = exports.DataType = exports.SortType = void 0;
+exports.MongoCooldown = exports.MongoRecord = exports.SQLCooldown = exports.Cooldown = exports.SQLiteRecord = exports.PostgreSQLRecord = exports.MySQLRecordWithoutIndex = exports.MySQLRecord = exports.VariableType = exports.DataType = exports.SortType = void 0;
+exports.driverKind = driverKind;
 const typeorm_1 = require("typeorm");
 var SortType;
 (function (SortType) {
@@ -34,7 +35,32 @@ var VariableType;
     VariableType[VariableType["member"] = 4] = "member";
     VariableType[VariableType["custom"] = 5] = "custom";
     VariableType[VariableType["guild"] = 6] = "guild";
+    VariableType[VariableType["old"] = 7] = "old";
 })(VariableType || (exports.VariableType = VariableType = {}));
+function driverKind(type) {
+    switch (type) {
+        case "mysql":
+        case "mariadb":
+            return "mysql";
+        case "postgres":
+            return "postgres";
+        case "mongodb":
+            return "mongodb";
+        default:
+            return "sqlite";
+    }
+}
+/** Reads 64-bit integer columns, which `pg` and `mysql2` return as strings, as numbers. */
+const bigintToNumber = {
+    to: (value) => value,
+    from: (value) => (value === null || value === undefined ? value : Number(value)),
+};
+/*
+ * Never change the type or length of an existing column below. TypeORM
+ * synchronizes the schema, and on PostgreSQL and MySQL it changes a column by
+ * dropping and re-creating it, which deletes its data. Adding indexes and
+ * nullable columns is safe.
+ */
 let MySQLRecord = class MySQLRecord {
     identifier;
     name;
@@ -69,8 +95,49 @@ __decorate([
     __metadata("design:type", String)
 ], MySQLRecord.prototype, "guildId", void 0);
 exports.MySQLRecord = MySQLRecord = __decorate([
-    (0, typeorm_1.Entity)("record")
+    (0, typeorm_1.Entity)("record"),
+    (0, typeorm_1.Index)("IDX_record_name_type_guild", ["name", "type", "guildId"])
 ], MySQLRecord);
+/**
+ * The same table without the leaderboard index, used only when a MySQL server
+ * refuses the index (MySQL 5.6 and old MariaDB limit index keys to 767 bytes).
+ */
+let MySQLRecordWithoutIndex = class MySQLRecordWithoutIndex {
+    identifier;
+    name;
+    id;
+    type;
+    value;
+    guildId;
+};
+exports.MySQLRecordWithoutIndex = MySQLRecordWithoutIndex;
+__decorate([
+    (0, typeorm_1.PrimaryColumn)(),
+    __metadata("design:type", String)
+], MySQLRecordWithoutIndex.prototype, "identifier", void 0);
+__decorate([
+    (0, typeorm_1.Column)(),
+    __metadata("design:type", String)
+], MySQLRecordWithoutIndex.prototype, "name", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ nullable: true }),
+    __metadata("design:type", String)
+], MySQLRecordWithoutIndex.prototype, "id", void 0);
+__decorate([
+    (0, typeorm_1.Column)(),
+    __metadata("design:type", String)
+], MySQLRecordWithoutIndex.prototype, "type", void 0);
+__decorate([
+    (0, typeorm_1.Column)("longtext"),
+    __metadata("design:type", String)
+], MySQLRecordWithoutIndex.prototype, "value", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ nullable: true }),
+    __metadata("design:type", String)
+], MySQLRecordWithoutIndex.prototype, "guildId", void 0);
+exports.MySQLRecordWithoutIndex = MySQLRecordWithoutIndex = __decorate([
+    (0, typeorm_1.Entity)("record")
+], MySQLRecordWithoutIndex);
 let PostgreSQLRecord = class PostgreSQLRecord {
     identifier;
     name;
@@ -105,7 +172,8 @@ __decorate([
     __metadata("design:type", String)
 ], PostgreSQLRecord.prototype, "guildId", void 0);
 exports.PostgreSQLRecord = PostgreSQLRecord = __decorate([
-    (0, typeorm_1.Entity)("record")
+    (0, typeorm_1.Entity)("record"),
+    (0, typeorm_1.Index)("IDX_record_name_type_guild", ["name", "type", "guildId"])
 ], PostgreSQLRecord);
 let SQLiteRecord = class SQLiteRecord {
     identifier;
@@ -141,8 +209,10 @@ __decorate([
     __metadata("design:type", String)
 ], SQLiteRecord.prototype, "guildId", void 0);
 exports.SQLiteRecord = SQLiteRecord = __decorate([
-    (0, typeorm_1.Entity)("record")
+    (0, typeorm_1.Entity)("record"),
+    (0, typeorm_1.Index)("IDX_record_name_type_guild", ["name", "type", "guildId"])
 ], SQLiteRecord);
+/** SQLite cooldowns. SQLite integers are 64-bit, so these columns hold millisecond timestamps. */
 let Cooldown = class Cooldown {
     identifier;
     name;
@@ -174,6 +244,50 @@ __decorate([
 exports.Cooldown = Cooldown = __decorate([
     (0, typeorm_1.Entity)()
 ], Cooldown);
+/**
+ * MySQL and PostgreSQL cooldowns. ForgeDB used 32-bit `integer` columns here,
+ * which cannot hold a millisecond timestamp: every cooldown write failed on
+ * these databases. `bigint` holds any timestamp and any duration.
+ */
+let SQLCooldown = class SQLCooldown {
+    identifier;
+    name;
+    id;
+    startedAt;
+    duration;
+};
+exports.SQLCooldown = SQLCooldown;
+__decorate([
+    (0, typeorm_1.PrimaryColumn)(),
+    __metadata("design:type", String)
+], SQLCooldown.prototype, "identifier", void 0);
+__decorate([
+    (0, typeorm_1.Column)(),
+    __metadata("design:type", String)
+], SQLCooldown.prototype, "name", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ nullable: true }),
+    __metadata("design:type", String)
+], SQLCooldown.prototype, "id", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ type: "bigint", transformer: bigintToNumber }),
+    __metadata("design:type", Number)
+], SQLCooldown.prototype, "startedAt", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ type: "bigint", transformer: bigintToNumber }),
+    __metadata("design:type", Number)
+], SQLCooldown.prototype, "duration", void 0);
+exports.SQLCooldown = SQLCooldown = __decorate([
+    (0, typeorm_1.Entity)("cooldown")
+], SQLCooldown);
+/*
+ * MongoDB keys documents by `_id`, so `identifier` gets its own index: without
+ * it every read was a full collection scan. It is unique, which is also what
+ * makes an upsert safe: without it two first writes at the same moment insert
+ * two documents. ForgeDB's read-then-write could leave such duplicates; they
+ * are removed before the index is built (DataBase.beforeSynchronize). The
+ * name/type/guildId index is inherited from SQLiteRecord.
+ */
 let MongoRecord = class MongoRecord extends SQLiteRecord {
     mongoId;
 };
@@ -183,7 +297,8 @@ __decorate([
     __metadata("design:type", String)
 ], MongoRecord.prototype, "mongoId", void 0);
 exports.MongoRecord = MongoRecord = __decorate([
-    (0, typeorm_1.Entity)()
+    (0, typeorm_1.Entity)(),
+    (0, typeorm_1.Index)("UQ_mongo_record_identifier", ["identifier"], { unique: true })
 ], MongoRecord);
 let MongoCooldown = class MongoCooldown extends Cooldown {
     mongoId;
@@ -194,6 +309,7 @@ __decorate([
     __metadata("design:type", String)
 ], MongoCooldown.prototype, "mongoId", void 0);
 exports.MongoCooldown = MongoCooldown = __decorate([
-    (0, typeorm_1.Entity)()
+    (0, typeorm_1.Entity)(),
+    (0, typeorm_1.Index)("UQ_mongo_cooldown_identifier", ["identifier"], { unique: true })
 ], MongoCooldown);
 //# sourceMappingURL=types.js.map
