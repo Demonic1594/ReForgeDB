@@ -224,6 +224,8 @@ interface Settings {
     readyTimeout: number
     leaderboardCacheTTL: number
     cooldownSweepInterval: number
+    cooldownExpireInterval: number
+    cooldownExpireMaxDelay: number
     cache: { max: number; ttl: number } | null
 }
 
@@ -232,8 +234,15 @@ const DEFAULT_SETTINGS: Settings = {
     readyTimeout: 30_000,
     leaderboardCacheTTL: 2000,
     cooldownSweepInterval: 3_600_000,
+    cooldownExpireInterval: 5000,
+    cooldownExpireMaxDelay: 12 * 3_600_000,
     cache: null,
 }
+
+/** The smallest `cooldownExpireMaxDelay`: checks run every few seconds, and a restart takes a while. */
+export const MIN_COOLDOWN_EXPIRE_MAX_DELAY = 60_000
+/** Cooldowns handled per check; a check that finds a full batch runs again right away. */
+const EXPIRE_BATCH = 500
 
 function nonNegative(name: string, value: unknown, fallback: number): number {
     if (value === undefined || value === null) return fallback
@@ -241,6 +250,12 @@ function nonNegative(name: string, value: unknown, fallback: number): number {
         throw new ReForgeDBError(`Option "${name}" must be a number of 0 or more, got ${JSON.stringify(value)}`)
     }
     return value
+}
+
+function atLeast(name: string, value: unknown, fallback: number, min: number): number {
+    const n = nonNegative(name, value, fallback)
+    if (n < min) throw new ReForgeDBError(`Option "${name}" must be at least ${min} ms, got ${n}`)
+    return n
 }
 
 /** Validates the options of `new ReForgeDB()` and returns the resolved settings. */
@@ -273,8 +288,66 @@ export function resolveSettings(options: IReForgeDBOptions | undefined): Setting
         readyTimeout: nonNegative("readyTimeout", o.readyTimeout, DEFAULT_SETTINGS.readyTimeout),
         leaderboardCacheTTL: nonNegative("leaderboardCacheTTL", o.leaderboardCacheTTL, DEFAULT_SETTINGS.leaderboardCacheTTL),
         cooldownSweepInterval: nonNegative("cooldownSweepInterval", o.cooldownSweepInterval, DEFAULT_SETTINGS.cooldownSweepInterval),
+        cooldownExpireInterval: nonNegative("cooldownExpireInterval", o.cooldownExpireInterval, DEFAULT_SETTINGS.cooldownExpireInterval),
+        cooldownExpireMaxDelay: atLeast("cooldownExpireMaxDelay", o.cooldownExpireMaxDelay, DEFAULT_SETTINGS.cooldownExpireMaxDelay, MIN_COOLDOWN_EXPIRE_MAX_DELAY),
         cache,
     }
+}
+
+/** What `client.db.export()` returns and `client.db.import()` reads. */
+export interface ReForgeDBExport {
+    format: "reforge.db"
+    version: 1
+    exportedAt: string
+    /** The database family it was exported from. */
+    source: string
+    records: Array<{ identifier: string; name: string; id: string | null; type: string; value: string; guildId: string | null }>
+    cooldowns: Array<{ identifier: string; name: string; id: string | null; startedAt: number; duration: number }>
+}
+
+export interface ImportResult {
+    records: { created: number; overwritten: number; skipped: number }
+    cooldowns: { created: number; overwritten: number; skipped: number }
+}
+
+const VARIABLE_TYPES = new Set(["user", "channel", "role", "message", "member", "custom", "guild", "old"])
+
+/** Checks data for `import()` completely before anything is written. */
+function validateExport(input: unknown): ReForgeDBExport {
+    let data = input
+    if (typeof data === "string") {
+        try {
+            data = JSON.parse(data)
+        } catch (err) {
+            throw new ReForgeDBError(`import(): the text is not valid JSON (${errorMessage(err)})`)
+        }
+    }
+    const d = data as Partial<ReForgeDBExport> | null
+    if (!d || typeof d !== "object" || d.format !== "reforge.db" || d.version !== 1) throw new ReForgeDBError('import(): this is not data from client.db.export() (format "reforge.db", version 1)')
+    if (!Array.isArray(d.records) || !Array.isArray(d.cooldowns)) throw new ReForgeDBError("import(): records and cooldowns must be arrays")
+    const problems: string[] = []
+    const text = (v: unknown, max = 1_000_000) => typeof v === "string" && v.length <= max
+    d.records.forEach((r, i) => {
+        if (!r || typeof r !== "object") return problems.push(`records[${i}] is not an object`)
+        if (!text(r.identifier, 2048) || r.identifier === "") problems.push(`records[${i}].identifier must be text`)
+        if (!text(r.name, 1024)) problems.push(`records[${i}].name must be text`)
+        if (r.id !== null && r.id !== undefined && !text(r.id, 1024)) problems.push(`records[${i}].id must be text or null`)
+        if (!VARIABLE_TYPES.has(r.type as string)) problems.push(`records[${i}].type must be one of ${[...VARIABLE_TYPES].join(", ")}`)
+        if (!text(r.value, 16_000_000)) problems.push(`records[${i}].value must be text`)
+        if (r.guildId !== null && r.guildId !== undefined && !text(r.guildId, 64)) problems.push(`records[${i}].guildId must be text or null`)
+    })
+    d.cooldowns.forEach((c, i) => {
+        if (!c || typeof c !== "object") return problems.push(`cooldowns[${i}] is not an object`)
+        if (!text(c.identifier, 2048) || c.identifier === "") problems.push(`cooldowns[${i}].identifier must be text`)
+        if (!text(c.name, 1024)) problems.push(`cooldowns[${i}].name must be text`)
+        if (c.id !== null && c.id !== undefined && !text(c.id, 1024)) problems.push(`cooldowns[${i}].id must be text or null`)
+        for (const k of ["startedAt", "duration"] as const) if (!Number.isSafeInteger(c[k]) || (c[k] as number) < 0) problems.push(`cooldowns[${i}].${k} must be a whole number of 0 or more`)
+    })
+    if (problems.length) {
+        const more = problems.length > 10 ? ` (and ${problems.length - 10} more)` : ""
+        throw new ReForgeDBError(`import(): nothing was written, the data has ${problems.length} problem(s): ${problems.slice(0, 10).join("; ")}${more}`)
+    }
+    return d as ReForgeDBExport
 }
 
 /**
@@ -429,6 +502,7 @@ export class DataBase extends DataBaseManager {
         for (const w of DataBase.waiters) w.resolve()
         DataBase.waiters.clear()
         DataBase.startSweeper()
+        DataBase.startExpirer()
     }
 
     private static fail(error: ReForgeDBError) {
@@ -1040,6 +1114,10 @@ export class DataBase extends DataBaseManager {
 
     /** Deletes cooldowns that have run out. Returns how many were deleted. */
     public static async sweepCooldowns(): Promise<number> {
+        // With cooldownExpire on, the expiry check deletes each expired
+        // cooldown when it fires (or drops) its event; sweeping here would
+        // take them away from it.
+        if (DataBase.expiryActive) return 0
         const now = Date.now()
         return DataBase.op("cooldown sweep", "expired", async (db) => {
             if (DataBase.mongo) {
@@ -1069,6 +1147,184 @@ export class DataBase extends DataBaseManager {
         DataBase.sweeper = setInterval(sweep, every)
         DataBase.sweeper.unref?.()
         setTimeout(sweep, Math.min(every, 5000)).unref?.()
+    }
+
+    // ------------------------------------------------------------ cooldownExpire
+
+    private static expirer: NodeJS.Timeout | null = null
+    private static expiring = false
+
+    /** Whether cooldownExpire is on: something listens to it and the check runs. */
+    private static get expiryActive(): boolean {
+        return DataBase.settings.cooldownExpireInterval > 0 && DataBase.listening("cooldownExpire")
+    }
+
+    private static startExpirer() {
+        if (DataBase.expirer) clearInterval(DataBase.expirer)
+        DataBase.expirer = null
+        const every = DataBase.settings.cooldownExpireInterval
+        if (!every) return
+        const tick = () => {
+            if (DataBase.expiring || DataBase.closed || !DataBase.expiryActive) return
+            DataBase.expiring = true
+            DataBase.expireCooldowns()
+                .catch((err) => ReForgeDBLogger.warn(`Could not check for expired cooldowns: ${errorMessage(err)}`))
+                .finally(() => (DataBase.expiring = false))
+        }
+        DataBase.expirer = setInterval(tick, every)
+        DataBase.expirer.unref?.()
+        setTimeout(tick, Math.min(every, 1000)).unref?.()
+    }
+
+    /**
+     * Fires cooldownExpire for cooldowns that ran out, and deletes them. Each
+     * one is claimed with a conditional delete (same identifier, start and
+     * duration), so with several processes on one database exactly one fires
+     * it, and a cooldown restarted or deleted meanwhile fires nothing. One
+     * that ran out more than `cooldownExpireMaxDelay` ago (the bot was off) is
+     * deleted without an event. Returns how many were fired and dropped.
+     */
+    public static async expireCooldowns(now = Date.now()): Promise<{ fired: number; dropped: number }> {
+        let fired = 0
+        let dropped = 0
+        const maxDelay = DataBase.settings.cooldownExpireMaxDelay
+        for (;;) {
+            const due = await DataBase.op("cooldown expire", "due", async (db) => {
+                if (DataBase.mongo) {
+                    return (await db.getMongoRepository(DataBase.entities.Cooldown).find({ where: { $expr: { $lte: [{ $add: ["$startedAt", "$duration"] }, now] } }, take: EXPIRE_BATCH })) as Cooldown[]
+                }
+                const esc = (c: string) => db.driver.escape(c)
+                return (await DataBase.cooldowns(db)
+                    .createQueryBuilder("c")
+                    .where(`c.${esc("startedAt")} + c.${esc("duration")} <= :now`, { now })
+                    .limit(EXPIRE_BATCH)
+                    .getMany()) as Cooldown[]
+            })
+            let claimed = 0
+            for (const row of due) {
+                const cd = { identifier: row.identifier, name: row.name, id: row.id ?? null, startedAt: Number(row.startedAt), duration: Number(row.duration) }
+                const mine = await DataBase.op("cooldown expire", cd.identifier, async (db) => {
+                    if (DataBase.mongo) {
+                        const result = await db.getMongoRepository(DataBase.entities.Cooldown).deleteOne({ identifier: cd.identifier, startedAt: cd.startedAt, duration: cd.duration })
+                        return (result.deletedCount ?? 0) > 0
+                    }
+                    const esc = (c: string) => db.driver.escape(c)
+                    const result = await db
+                        .createQueryBuilder()
+                        .delete()
+                        .from(DataBase.entities.Cooldown)
+                        .where(`${esc("identifier")} = :identifier AND ${esc("startedAt")} = :startedAt AND ${esc("duration")} = :duration`, cd)
+                        .execute()
+                    return (result.affected ?? 0) > 0
+                })
+                if (!mine) continue // another process fired it, or it was restarted or deleted
+                claimed++
+                DataBase.cooldownHints.delete(cd.identifier)
+                const expiredAt = cd.startedAt + cd.duration
+                if (now - expiredAt > maxDelay) {
+                    dropped++
+                    continue
+                }
+                fired++
+                ReForgeDBLogger.debug(`cooldown ${cd.identifier} ran out ${now - expiredAt} ms ago: cooldownExpire`)
+                DataBase.emit("cooldownExpire", { cooldown: { ...cd, expiredAt }, event: "cooldownExpire" })
+            }
+            // A full batch may have more behind it; a batch that claimed nothing
+            // (another process got them all) is left to that process.
+            if (due.length < EXPIRE_BATCH || claimed === 0 || DataBase.closed) break
+        }
+        if (dropped) {
+            ReForgeDBLogger.info(`Dropped ${dropped} cooldownExpire event(s) of cooldowns that ran out more than ${Math.round(maxDelay / 60_000)} min ago while the bot was offline (cooldownExpireMaxDelay)`)
+        }
+        return { fired, dropped }
+    }
+
+    // ------------------------------------------------------- backup and export
+
+    /**
+     * SQLite: writes a consistent copy of the database to `file` while the bot
+     * runs (`VACUUM INTO`), and returns its path. Without `file`, the copy goes
+     * to `backups/reforge-<date>.db` next to the database. An existing file is
+     * never overwritten. On other databases, use `export()` or the database's
+     * own tools (pg_dump, mysqldump, mongodump).
+     */
+    public static async backup(file?: string): Promise<string> {
+        const path = require("path") as typeof import("path")
+        const fs = require("fs") as typeof import("fs")
+        if (DataBase.kind !== "sqlite") {
+            throw new ReForgeDBError(`backup() copies SQLite files; on ${DataBase.db?.options.type ?? DataBase.kind} use client.db.export() or the database's own backup tool (pg_dump, mysqldump, mongodump)`)
+        }
+        return DataBase.op("backup", file ?? "default", async (db) => {
+            const source = String(db.options.database)
+            const target = path.resolve(file ?? path.join(path.dirname(source), "backups", `${path.basename(source, ".db")}-${new Date().toISOString().replace(/[:.]/g, "-")}.db`))
+            if (target === path.resolve(source)) throw new ReForgeDBError("A backup cannot be written over the database itself")
+            if (fs.existsSync(target)) throw new ReForgeDBError(`${target} already exists; a backup never overwrites a file`)
+            fs.mkdirSync(path.dirname(target), { recursive: true })
+            await db.query("VACUUM INTO ?", [target])
+            ReForgeDBLogger.info(`Backup written to ${target}`)
+            return target
+        })
+    }
+
+    /**
+     * Every variable and cooldown as plain JSON-safe data, for any database.
+     * `import()` reads it back, also into another type of database.
+     */
+    public static async export(): Promise<ReForgeDBExport> {
+        const [records, cooldowns] = await Promise.all([
+            DataBase.op("export", "records", async (db) => (await DataBase.records(db).find()) as SQLiteRecord[]),
+            DataBase.op("export", "cooldowns", async (db) => (await DataBase.cooldowns(db).find()) as Cooldown[]),
+        ])
+        return {
+            format: "reforge.db",
+            version: 1,
+            exportedAt: new Date().toISOString(),
+            source: DataBase.kind,
+            records: records.map((r) => ({ identifier: r.identifier, name: r.name, id: r.id ?? null, type: String(r.type), value: r.value, guildId: r.guildId ?? null })),
+            cooldowns: cooldowns.map((c) => ({ identifier: c.identifier, name: c.name, id: c.id ?? null, startedAt: Number(c.startedAt), duration: Number(c.duration) })),
+        }
+    }
+
+    /**
+     * Writes data from `export()` (the object or its JSON text) into the
+     * database. Existing variables and cooldowns (same identifier) are left as
+     * they are unless `overwrite` is true. Everything is checked before the
+     * first write, so invalid data writes nothing. Emits no events.
+     */
+    public static async import(input: ReForgeDBExport | string, options: { overwrite?: boolean } = {}): Promise<ImportResult> {
+        const data = validateExport(input)
+        const result: ImportResult = { records: { created: 0, overwritten: 0, skipped: 0 }, cooldowns: { created: 0, overwritten: 0, skipped: 0 } }
+        for (const r of data.records) {
+            const outcome = await DataBase.op("import", r.identifier, async (db) => {
+                const exists = DataBase.mongo
+                    ? !!(await db.getMongoRepository(DataBase.entities.Record).findOneBy({ identifier: r.identifier }))
+                    : !!(await DataBase.readRecord(db, r.identifier))
+                if (exists && !options.overwrite) return "skipped" as const
+                const rowData = { ...r, id: r.id ?? undefined, guildId: r.guildId ?? undefined }
+                if (DataBase.mongo) await db.getMongoRepository(DataBase.entities.Record).updateOne({ identifier: r.identifier }, { $set: defined(rowData) }, { upsert: true })
+                else if (DataBase.sql) await db.query(DataBase.sql.upsertRecord, row(rowData, RECORD_COLUMNS))
+                else await DataBase.records(db).upsert(rowData, { conflictPaths: ["identifier"], skipUpdateIfNoValuesChanged: false })
+                return exists ? ("overwritten" as const) : ("created" as const)
+            })
+            result.records[outcome]++
+        }
+        for (const c of data.cooldowns) {
+            const outcome = await DataBase.op("import", c.identifier, async (db) => {
+                const exists = !!(await DataBase.cooldowns(db).findOneBy({ identifier: c.identifier }))
+                if (exists && !options.overwrite) return "skipped" as const
+                const rowData = { ...c, id: c.id ?? undefined }
+                if (DataBase.mongo) await db.getMongoRepository(DataBase.entities.Cooldown).updateOne({ identifier: c.identifier }, { $set: defined(rowData) }, { upsert: true })
+                else if (DataBase.sql) await db.query(DataBase.sql.upsertCooldown, row(rowData, COOLDOWN_COLUMNS))
+                else await DataBase.cooldowns(db).upsert(rowData, { conflictPaths: ["identifier"], skipUpdateIfNoValuesChanged: false })
+                return exists ? ("overwritten" as const) : ("created" as const)
+            })
+            result.cooldowns[outcome]++
+        }
+        DataBase.clearCache()
+        ReForgeDBLogger.info(
+            `Imported variables (${result.records.created} new, ${result.records.overwritten} overwritten, ${result.records.skipped} kept) and cooldowns (${result.cooldowns.created} new, ${result.cooldowns.overwritten} overwritten, ${result.cooldowns.skipped} kept)`
+        )
+        return result
     }
 
     // ------------------------------------------------------------------- other
@@ -1123,7 +1379,8 @@ export class DataBase extends DataBaseManager {
         if (DataBase.retryTimer) clearTimeout(DataBase.retryTimer)
         DataBase.wakeRetry?.()
         if (DataBase.sweeper) clearInterval(DataBase.sweeper)
-        DataBase.retryTimer = DataBase.sweeper = null
+        if (DataBase.expirer) clearInterval(DataBase.expirer)
+        DataBase.retryTimer = DataBase.sweeper = DataBase.expirer = null
         DataBase.db = null
         DataBase.sql = null
         DataBase.readCache?.clear()

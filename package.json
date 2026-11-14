@@ -1,6 +1,6 @@
 {
   "name": "@tryforge/reforge.db",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "ReForgeDB: a reworked, hardened and faster database extension for ForgeScript (SQLite, better-sqlite3, MySQL/MariaDB, PostgreSQL, MongoDB). Fork of tryforge/ForgeDB.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -58,7 +58,8 @@
     "metadata",
     "LICENSE",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "ECOSYSTEM.md"
   ],
   "engines": {
     "node": ">=18.17"

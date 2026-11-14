@@ -62,6 +62,18 @@ export interface IReForgeDBCommonOptions {
     /** How often (ms) expired cooldowns are deleted from the database. `0` disables it. Defaults to 1 hour. */
     cooldownSweepInterval?: number;
     /**
+     * With a `cooldownExpire` listener: how often (ms) ReForgeDB looks for
+     * cooldowns that ran out. `0` turns the event off. Defaults to `5000`.
+     */
+    cooldownExpireInterval?: number;
+    /**
+     * A cooldown that ran out while the bot was offline still fires
+     * `cooldownExpire` if it is at most this many ms late; older ones are
+     * dropped (and deleted) without an event, so a restart never sends a flood.
+     * Defaults to 12 hours, at least `60000`.
+     */
+    cooldownExpireMaxDelay?: number;
+    /**
      * How long (ms) a function waits for the database to connect before it
      * fails with an error. Defaults to `30000`.
      */

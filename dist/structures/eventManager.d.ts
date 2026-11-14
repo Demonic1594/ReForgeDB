@@ -23,6 +23,23 @@ export interface IReForgeDBEvents {
             event?: "variableUpdate";
         }
     ];
+    cooldownExpire: [
+        {
+            cooldown: ExpiredCooldown;
+            event?: "cooldownExpire";
+        }
+    ];
+}
+/** A cooldown that ran out, as the cooldownExpire event hands it over. */
+export interface ExpiredCooldown {
+    identifier: string;
+    name: string;
+    /** The ID the cooldown was for (user, `user_guild` for members, guild, channel), or nothing for global ones. */
+    id: string | null;
+    startedAt: number;
+    duration: number;
+    /** When it ran out (ms since epoch): `startedAt + duration`. */
+    expiredAt: number;
 }
 export declare class ReForgeDBEventHandler<T extends keyof IReForgeDBEvents> extends BaseEventHandler<IReForgeDBEvents, T> {
     register(client: ForgeClient): void;
