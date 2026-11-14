@@ -36,7 +36,7 @@ ReForgeDB is a reworked, hardened and faster database extension for ForgeScript:
 - 🛡️ **Survives a database that is down.** It reconnects by itself, and functions answer with an error your code can catch instead of crashing the bot.
 - ⚡ **Faster.** Writes are 3 to 10 times faster, a leaderboard command scans its variable once instead of once per function, and deleting thousands of variables is one statement.
 - 🔎 **Tells you what is wrong.** Clear errors that `$try` can catch, five log levels up to every SQL statement, and warnings for slow operations.
-- 🧪 **Tested.** 144 tests, including a seeded fuzz test with injected database failures and switching between the two SQLite drivers under load, run in CI on SQLite, better-sqlite3, PostgreSQL, MariaDB, MySQL and MongoDB, on ForgeScript 2.5 and 2.8.
+- 🧪 **Tested.** 145 tests, including a seeded fuzz test with injected database failures and switching between the two SQLite drivers under load, run in CI on SQLite, better-sqlite3, PostgreSQL, MariaDB, MySQL and MongoDB, on ForgeScript 2.5 and 2.8.
 
 <details>
 <summary><b>Everything fixed compared to ForgeDB 2.1.1</b></summary>

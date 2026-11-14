@@ -5,7 +5,7 @@
 Faster cooldown claims, one fix in them, and tests for switching between the two SQLite drivers. Nothing to migrate.
 
 ### Performance
-- **A cooldown claim is one statement**, whether it starts the cooldown or finds it running (3.0.0: a read, plus a write when it started it). ReForgeDB remembers when each cooldown it saw runs out and picks the statement that likely decides the claim: a conditional write (`INSERT ... ON CONFLICT DO UPDATE ... WHERE` it has run out; on MongoDB an upsert the unique index refuses while one runs) when it is probably free, a read when it is probably running. The database still decides every claim, so a wrong guess costs one more statement, never a wrong answer. MySQL and MariaDB keep the read and the conditional write when starting a cooldown: their `ON DUPLICATE KEY UPDATE` cannot report reliably whether it changed the row.
+- **A cooldown claim is one statement**, whether it starts the cooldown or finds it running (3.0.0: a read, plus a write when it started it). ReForgeDB remembers when each cooldown it saw runs out and picks the statement that likely decides the claim: a conditional write (`INSERT ... ON CONFLICT DO UPDATE ... WHERE` it has run out; on MongoDB one update pipeline with upsert that keeps a running cooldown's values) when it is probably free, a read when it is probably running. The database still decides every claim, so a wrong guess costs one more statement, never a wrong answer. MySQL and MariaDB keep the read and the conditional write when starting a cooldown: their `ON DUPLICATE KEY UPDATE` cannot report reliably whether it changed the row.
 - Measured with `$dbUserCooldown` on PostgreSQL 16, 5 ms away in each direction, 150 users: starting a cooldown 24.0-24.6 ms (3.0.0) → 12.8-13.0 ms; finding it running 11.7-11.8 ms → 11.8-11.9 ms.
 
 ### Fixed
@@ -13,7 +13,7 @@ Faster cooldown claims, one fix in them, and tests for switching between the two
 
 ### Tests
 - `test/driver.test.js`: a database written with one SQLite driver is read the same by the other, in both directions (every scope, odd values, values that look like SQL, a leaderboard, running cooldowns); the schema is left as it is; 8 switches back and forth with the write-ahead log off and on; a crash (`kill -9`) with one driver, read by the other; a file that is not a database is reported and never overwritten; a missing driver package is named and no file is created; a file locked by another program fails with a catchable error after the 5 s busy timeout and works again afterwards; four processes on both drivers writing one file at once, with every cooldown claimed exactly once.
-- 144 tests on SQLite (129 before), 116 on PostgreSQL, MariaDB and MySQL (114), 117 on MongoDB (115).
+- 145 tests on SQLite (129 before), 117 on PostgreSQL, MariaDB and MySQL (114), 118 on MongoDB (115).
 - `better-sqlite3` is a development dependency, so `npm install` brings both drivers for the tests. Nothing changes for bots that install ReForgeDB.
 
 ### Documentation

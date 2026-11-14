@@ -136,6 +136,18 @@ test("a claim that loses a race never reports a cooldown as started that is not"
     }
 })
 
+test("cooldown names and IDs are stored as they are, also ones that look like field paths or SQL", async () => {
+    for (const name of ["$startedAt", "$name", "'); DROP TABLE cooldown; --", "a.b"]) {
+        const identifier = DB.make_cdIdentifier({ name, id: ids.user })
+        assert.equal(await DB.cdClaim({ name, id: ids.user, duration: 3_600_000 }), 0, `${name}: first claim starts it`)
+        assert.ok((await DB.cdClaim({ name, id: ids.user, duration: 3_600_000 })) > 0, `${name}: second claim finds it running`)
+        const stored = await DB.cdTimeLeft(identifier)
+        assert.equal(stored.name, name)
+        assert.equal(stored.duration, 3_600_000)
+    }
+    await DB.cdWipe()
+})
+
 test("concurrent claims of one cooldown: exactly one gets through", async () => {
     // Twenty "!daily" at once: ForgeDB let all of them pass (check and start were separate steps).
     const results = await Promise.all(Array.from({ length: 20 }, () => exec("$dbUserCooldown[daily;1h;no]claimed")))

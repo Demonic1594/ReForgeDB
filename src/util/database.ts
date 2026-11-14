@@ -966,13 +966,20 @@ export class DataBase extends DataBaseManager {
      */
     private static async claimFirst(db: DataSource, cd: { identifier: string; name: string; id?: string; startedAt: number; duration: number }): Promise<boolean> {
         if (DataBase.mongo) {
-            const expired = { $expr: { $lte: [{ $add: ["$startedAt", "$duration"] }, cd.startedAt] } }
+            // One update pipeline with upsert ($expr is not allowed in an upsert's
+            // filter): a missing cooldown is inserted, one that has run out takes
+            // the new values, a running one keeps its own. Every expression of a
+            // $set stage reads the document as it was, and values go in as
+            // $literal, so a name starting with "$" is never read as a field.
+            const free = { $lte: [{ $add: [{ $ifNull: ["$startedAt", 0] }, { $ifNull: ["$duration", 0] }] }, cd.startedAt] }
+            const take = (field: string, value: unknown) => ({ $cond: [free, { $literal: value }, "$" + field] })
+            const fields: Record<string, unknown> = { name: take("name", cd.name), startedAt: take("startedAt", cd.startedAt), duration: take("duration", cd.duration) }
+            if (cd.id !== undefined) fields.id = take("id", cd.id)
             try {
-                // Matches only a cooldown that has run out; with none, the upsert
-                // inserts, which the unique index refuses while one is running.
-                await db.getMongoRepository(DataBase.entities.Cooldown).updateOne({ identifier: cd.identifier, ...expired }, { $set: defined(cd) }, { upsert: true })
-                return true
+                const result = await db.getMongoRepository(DataBase.entities.Cooldown).updateOne({ identifier: cd.identifier }, [{ $set: fields }] as never, { upsert: true })
+                return (result.upsertedCount ?? 0) > 0 || (result.modifiedCount ?? 0) > 0
             } catch (err) {
+                // Two first claims at once: the unique index refused the second insert.
                 if ((err as { code?: number })?.code === 11000) return false
                 throw err
             }
