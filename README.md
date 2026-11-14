@@ -196,6 +196,9 @@ The first call starts the cooldown and the command goes on. While it is running,
 > ⚠️ **Warning**\
 > `$userCooldown`, `$memberCooldown`, `$guildCooldown` and `$channelCooldown` (without `db`) are ForgeScript's own functions: kept in memory, lost on restart, separate for each command, and with other arguments (`$userCooldown[user ID;duration;code]`). ForgeDB documented functions with the same names, but they never loaded. Put `db` in front to get the stored ones: `$userCooldown[` → `$dbUserCooldown[`, `$getUserCooldownTime[` → `$dbGetUserCooldownTime[`, `$deleteUserCooldown[` → `$dbDeleteUserCooldown[`.
 
+> ℹ️ **Note (correction)**\
+> In a bot, ForgeDB's `$userCooldown` and the ten related functions *do* load: ForgeScript loads extensions before its own functions, so ForgeDB's versions are kept, and the startup line `ForgeScript | Attempted to override the following 11 functions` means ForgeScript's versions were skipped (checked on ForgeScript 2.8.0 and 2.5.0 with one client and ForgeDB 2.1.1: `$userCooldown[daily;1d;...]` writes ForgeDB's cooldown table). The statements on this page that they "never loaded" are wrong. The rename to `$dbUserCooldown` and the others is still needed when switching: with ReForgeDB, the names without `db` are ForgeScript's in-memory cooldowns, whose first argument is the user or channel ID.
+
 <h3 align="center">Default Values</h3><hr>
 
 Declare what a variable is when it was never set:
