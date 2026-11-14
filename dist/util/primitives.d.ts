@@ -53,6 +53,12 @@ export declare function likePrefix(pattern: string): string;
  * the database server; this greedy matcher takes linear time per wildcard.
  */
 export declare function likeMatcher(pattern: string): (text: unknown) => boolean;
+/**
+ * An anchored, case-insensitive regular expression for a `LIKE` pattern. Use
+ * it only for patterns with at most one `%`: with more, it can backtrack
+ * exponentially (use `likeMatcher`).
+ */
+export declare function likeRegExp(pattern: string): RegExp;
 /** Escapes text for use inside a regular expression. */
 export declare function escapeRegExp(text: string): string;
 /**

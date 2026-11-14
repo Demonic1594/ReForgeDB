@@ -5,6 +5,7 @@ exports.chunk = chunk;
 exports.normalizeLike = normalizeLike;
 exports.likePrefix = likePrefix;
 exports.likeMatcher = likeMatcher;
+exports.likeRegExp = likeRegExp;
 exports.escapeRegExp = escapeRegExp;
 exports.compareIds = compareIds;
 exports.rankValue = rankValue;
@@ -164,6 +165,18 @@ function likeMatcher(pattern) {
             pi++;
         return pi === p.length;
     };
+}
+/**
+ * An anchored, case-insensitive regular expression for a `LIKE` pattern. Use
+ * it only for patterns with at most one `%`: with more, it can backtrack
+ * exponentially (use `likeMatcher`).
+ */
+function likeRegExp(pattern) {
+    let source = "";
+    for (const ch of normalizeLike(pattern))
+        source += ch === "%" ? "[\\s\\S]*" : ch === "_" ? "[\\s\\S]" : escapeRegExp(ch);
+    // u: _ is one character, also outside the BMP (MongoDB counts characters too).
+    return new RegExp(`^${source}$`, "iu");
 }
 /** Escapes text for use inside a regular expression. */
 function escapeRegExp(text) {

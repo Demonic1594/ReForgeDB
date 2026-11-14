@@ -6,7 +6,7 @@ import type { IReForgeDBEvents } from "../structures"
 import type { TransformEvents } from ".."
 import { DataBaseManager, EntityList } from "./databaseManager"
 import { ReForgeDBLogger, errorMessage, isLogLevel, ReForgeDBError } from "./logger"
-import { chunk, compareIds, escapeRegExp, KeyedMutex, likeMatcher, likePrefix, LRUCache, normalizeLike, rankValue } from "./primitives"
+import { chunk, compareIds, escapeRegExp, KeyedMutex, likeMatcher, likePrefix, likeRegExp, LRUCache, normalizeLike, rankValue } from "./primitives"
 import {
     Cooldown,
     DriverKind,
@@ -674,6 +674,12 @@ export class DataBase extends DataBaseManager {
                 }
                 if (!DataBase.mongo) {
                     where[key] = Like(pattern)
+                    continue
+                }
+                // With at most one %, the regular expression cannot backtrack
+                // more than linearly: the database matches it, in one query.
+                if ((pattern.match(/%/g)?.length ?? 0) <= 1) {
+                    where[key] = likeRegExp(pattern)
                     continue
                 }
                 const prefix = likePrefix(pattern)

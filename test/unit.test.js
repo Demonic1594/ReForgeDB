@@ -5,7 +5,7 @@ const assert = require("node:assert/strict")
 const path = require("path")
 const root = path.join(__dirname, "..")
 const lib = require(root)
-const { KeyedMutex, LRUCache, likeMatcher, likePrefix, normalizeLike, escapeRegExp, MAX_LIKE_LENGTH, compareIds, rankValue, chunk } = require(path.join(root, "dist/util/primitives"))
+const { KeyedMutex, LRUCache, likeMatcher, likePrefix, likeRegExp, normalizeLike, escapeRegExp, MAX_LIKE_LENGTH, compareIds, rankValue, chunk } = require(path.join(root, "dist/util/primitives"))
 const { resolveSettings, Leaderboard } = require(path.join(root, "dist/util/database"))
 const { pickId, pickText, sortOf, positiveInt, pagesOf, variableTypeOf, eventRecord } = require(path.join(root, "dist/util/functions"))
 const { ReForgeDBLogger } = require(path.join(root, "dist/util/logger"))
@@ -174,6 +174,13 @@ test("likeMatcher matches like SQL LIKE", () => {
     assert.ok(!m(".*", "anything"))
     assert.ok(!m("x", null))
     assert.ok(!m("x", 5))
+})
+
+test("likeRegExp, for patterns with at most one %, agrees with likeMatcher", () => {
+    const cases = ["coins", "COINS", "coins2", "coin%", "c_ins", "%", "", "a.b", "axb", "日本", "%🎉", "x(y)"]
+    for (const pattern of ["coins", "coin%", "%oins", "c_ins", "%", "a.b", "__", "x(y)%", "%🎉"]) {
+        for (const text of cases) assert.equal(likeRegExp(pattern).test(text), likeMatcher(pattern)(text), `${pattern} vs ${text}`)
+    }
 })
 
 test("a pathological pattern takes linear time", () => {

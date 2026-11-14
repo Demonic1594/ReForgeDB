@@ -593,6 +593,12 @@ class DataBase extends databaseManager_1.DataBaseManager {
                     where[key] = (0, typeorm_1.Like)(pattern);
                     continue;
                 }
+                // With at most one %, the regular expression cannot backtrack
+                // more than linearly: the database matches it, in one query.
+                if ((pattern.match(/%/g)?.length ?? 0) <= 1) {
+                    where[key] = (0, primitives_1.likeRegExp)(pattern);
+                    continue;
+                }
                 const prefix = (0, primitives_1.likePrefix)(pattern);
                 if (prefix)
                     where[key] = new RegExp(`^${(0, primitives_1.escapeRegExp)(prefix)}`, "i");
