@@ -8,7 +8,7 @@ const lib = require(root)
 const { KeyedMutex, LRUCache, likeToRegExp, compareIds, rankValue, chunk } = require(path.join(root, "dist/util/primitives"))
 const { resolveSettings, Leaderboard } = require(path.join(root, "dist/util/database"))
 const { pickId, pickText, sortOf, positiveInt, pagesOf, variableTypeOf, eventRecord } = require(path.join(root, "dist/util/functions"))
-const { DBLogger } = require(path.join(root, "dist/util/logger"))
+const { ReForgeDBLogger } = require(path.join(root, "dist/util/logger"))
 
 test("identity: package, extension and exports", () => {
     const pkg = require(path.join(root, "package.json"))
@@ -18,7 +18,7 @@ test("identity: package, extension and exports", () => {
     assert.equal(lib.EVENT_HANDLER_NAME, "ReForgeDBEvents")
     // The original's class name is not exported: the fork is clearly distinct.
     assert.equal(lib.ForgeDB, undefined)
-    for (const name of ["DataBase", "DataBaseManager", "Leaderboard", "ReForgeDBError", "DBLogger"]) assert.equal(typeof lib[name], "function", name)
+    for (const name of ["DataBase", "DataBaseManager", "Leaderboard", "ReForgeDBError", "ReForgeDBLogger"]) assert.equal(typeof lib[name], "function", name)
 })
 
 test("variable keys are exactly ForgeDB's, so existing databases keep working", () => {
@@ -255,21 +255,21 @@ test("options are validated at construction with clear messages", () => {
 })
 
 test("log levels gate output", () => {
-    const before = DBLogger.level
+    const before = ReForgeDBLogger.level
     try {
-        DBLogger.level = "warn"
-        assert.ok(DBLogger.enabled("error"))
-        assert.ok(DBLogger.enabled("warn"))
-        assert.ok(!DBLogger.enabled("info"))
-        assert.ok(!DBLogger.enabled("debug"))
-        DBLogger.level = "silent"
-        assert.ok(!DBLogger.enabled("error"))
-        DBLogger.level = "trace"
-        assert.ok(DBLogger.enabled("debug"))
-        assert.ok(DBLogger.enabled("trace"))
-        assert.ok(!DBLogger.enabled("silent"))
+        ReForgeDBLogger.level = "warn"
+        assert.ok(ReForgeDBLogger.enabled("error"))
+        assert.ok(ReForgeDBLogger.enabled("warn"))
+        assert.ok(!ReForgeDBLogger.enabled("info"))
+        assert.ok(!ReForgeDBLogger.enabled("debug"))
+        ReForgeDBLogger.level = "silent"
+        assert.ok(!ReForgeDBLogger.enabled("error"))
+        ReForgeDBLogger.level = "trace"
+        assert.ok(ReForgeDBLogger.enabled("debug"))
+        assert.ok(ReForgeDBLogger.enabled("trace"))
+        assert.ok(!ReForgeDBLogger.enabled("silent"))
     } finally {
-        DBLogger.level = before
+        ReForgeDBLogger.level = before
     }
 })
 

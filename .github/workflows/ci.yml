@@ -144,9 +144,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # The mongodb driver is a devDependency. The other test files are
-      # SQL-specific: table definitions, statement counts, raw queries.
-      - run: npm run build
-      - run: node --test --test-concurrency=1 test/unit.test.js test/functions.test.js test/events.test.js test/manager.test.js
+      # The mongodb driver is a devDependency.
+      - run: npm test
         env:
           REFORGEDB_TEST_DB: '{"type":"mongodb","url":"mongodb://127.0.0.1:27017/reforgedb_test"}'

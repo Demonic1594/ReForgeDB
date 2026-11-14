@@ -63,7 +63,7 @@ test("an extension gets its own connected DataSource with ReForgeDB's settings",
     if (kind === "sqlite") {
         // SQLite: its own file next to ReForgeDB's, named after `database`.
         assert.ok(fs.existsSync(path.join(h.dir, "tickets.db")))
-        assert.ok(fs.existsSync(path.join(h.dir, "forge.db")))
+        assert.ok(fs.existsSync(path.join(h.dir, "reforge.db")))
     }
 })
 

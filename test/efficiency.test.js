@@ -3,12 +3,12 @@
 // Runs without events and without the read cache (the defaults).
 const { test, before, after } = require("node:test")
 const assert = require("node:assert/strict")
-const { boot, ids, snowflake, queryCounter } = require("./fixtures/harness")
+const { boot, ids, snowflake, queryCounter, kind } = require("./fixtures/harness")
 
 let h, run, exec, DB
 const counter = queryCounter()
 before(async () => {
-    h = await boot({ logLevel: "warn", typeorm: counter.typeorm })
+    h = await boot({ logLevel: "warn", counter, cooldownSweepInterval: 0 })
     ;({ run, exec, DataBase: DB } = h)
 })
 after(async () => {
@@ -45,7 +45,8 @@ test("a leaderboard command scans the variable once, however many functions it u
     // Ascending order is a separate snapshot.
     assert.equal((await counter.during(() => run("$userLeaderboard[lb;asc;10;1]$getUserLeaderboardID[lb;asc;1]"))).count, 1)
     // Only the two columns a leaderboard needs are read.
-    assert.doesNotMatch(first.queries[0].split(/ FROM /i)[0], /identifier|guildId/i)
+    if (kind === "mongodb") assert.deepEqual(JSON.parse(first.queries[0]).projection, { id: 1, value: 1 })
+    else assert.doesNotMatch(first.queries[0].split(/ FROM /i)[0], /identifier|guildId/i)
     // A write refreshes it: the next command scans again, once.
     await DB.set({ ...user("lb", snowflake(999)), value: "1000" })
     const second = await counter.during(() => run(`$getUserLeaderboardID[lb;desc;1]|$getUserLeaderboardLength[lb]`))
@@ -117,11 +118,16 @@ test("slow operations are reported", async () => {
 })
 
 test("a failing database gives catchable errors and one log line, not a flood", async () => {
+    // Every way to the database fails: raw SQL, repositories, MongoDB repositories.
     const ds = DB.dataSource
-    const realQuery = ds.query
-    ds.query = async () => {
+    const real = { query: ds.query, getRepository: ds.getRepository, getMongoRepository: ds.getMongoRepository }
+    const lost = async () => {
         throw new Error("connection lost")
     }
+    const broken = new Proxy({}, { get: () => lost })
+    ds.query = lost
+    ds.getRepository = () => broken
+    ds.getMongoRepository = () => broken
     try {
         const before = h.logsOf("error").length
         for (let i = 0; i < 25; i++) {
@@ -132,7 +138,7 @@ test("a failing database gives catchable errors and one log line, not a flood", 
         assert.deepEqual(lines, ["[ReForgeDB] $getUserVar: get failed: connection lost", "[ReForgeDB] $setUserVar: set failed: connection lost"])
         await assert.rejects(DB.get({ name: "x", id: "1", type: "user" }), (err) => err.name === "ReForgeDBError" && err.cause?.message === "connection lost")
     } finally {
-        ds.query = realQuery
+        Object.assign(ds, real)
     }
     // It works again as soon as the database does.
     assert.equal(await run("$setUserVar[x;1]$getUserVar[x]"), "1")

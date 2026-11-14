@@ -4,7 +4,7 @@ const { test, after } = require("node:test")
 const assert = require("node:assert/strict")
 const fs = require("fs")
 const path = require("path")
-const { boot, tmpDir, external } = require("./fixtures/harness")
+const { boot, tmpDir, external, kind } = require("./fixtures/harness")
 
 let h
 let unhandled = 0
@@ -50,7 +50,7 @@ if (!external) {
         assert.equal(connects, 1)
         assert.ok(h.logsOf("info").some((l) => /Connected to (better-)?sqlite3? after \d+ attempts/.test(l)))
         assert.equal(await h.run("$setUserVar[coins;5]$getUserVar[coins]"), "5")
-        assert.ok(fs.existsSync(path.join(blocked, "forge.db")), "the database file keeps ForgeDB's name")
+        assert.ok(fs.existsSync(path.join(blocked, "reforge.db")))
     })
 
     test("calls made while it was down, with time left to wait, complete once it is up", async () => {
@@ -59,7 +59,9 @@ if (!external) {
     })
 } else {
     test("an unreachable server does not crash the bot; functions fail with a clear, catchable error", async () => {
-        h = await boot({ port: 1, host: "127.0.0.1", url: undefined, wait: false, readyTimeout: 400, logLevel: "info" })
+        // Nothing listens on port 1.
+        const unreachable = kind === "mongodb" ? { url: "mongodb://127.0.0.1:1/reforgedb_test", typeorm: { extra: { serverSelectionTimeoutMS: 200 } } } : { port: 1, host: "127.0.0.1", url: undefined }
+        h = await boot({ ...unreachable, wait: false, readyTimeout: 400, logLevel: "info" })
         const message = await errorOf("$getUserVar[coins]")
         assert.match(message, /\[ReForgeDB\] The database is not connected yet \(waited 400 ms\)/)
         assert.match((await h.exec("$setUserVar[coins;1]")).sent[0], /not connected yet/)

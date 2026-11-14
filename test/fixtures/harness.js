@@ -34,11 +34,11 @@ const ids = {
 }
 
 function tmpDir() {
-    return fs.mkdtempSync(path.join(os.tmpdir(), "forgedb-test-"))
+    return fs.mkdtempSync(path.join(os.tmpdir(), "reforgedb-test-"))
 }
 
 /** The database the tests run on, when it is not the default SQLite file. */
-const external = process.env.REFORGEDB_TEST_DB ? JSON.parse(process.env.REFORGEDB_TEST_DB) : process.env.FORGEDB_TEST_DB ? JSON.parse(process.env.FORGEDB_TEST_DB) : null
+const external = process.env.REFORGEDB_TEST_DB ? JSON.parse(process.env.REFORGEDB_TEST_DB) : null
 
 const fileBased = (type) => type === "sqlite" || type === "better-sqlite3"
 
@@ -50,6 +50,9 @@ function dbOptions(dir, extra = {}) {
 
 /** Whether the tests run on a database server (shared between test files, so wiped at boot). */
 const server = !!external && !fileBased(external.type)
+
+/** The entity family the tests run on: sqlite, mysql, postgres or mongodb. */
+const kind = !external || fileBased(external.type) ? "sqlite" : ["mysql", "mariadb"].includes(external.type) ? "mysql" : external.type
 
 /** Captures ForgeScript Logger output (ReForgeDB logs through Logger.log). */
 const logs = []
@@ -155,27 +158,21 @@ class CaptureContainer extends Container {
  *  - `wait: false`: return without waiting for the connection
  *  - `keep: true`: do not wipe an external test database first
  *  - `onExtension(ext)`: called before the connection is made
+ *  - `counter`: a queryCounter() to count what the database runs
  */
 async function boot(options = {}) {
-    const { dir = tmpDir(), wait = true, keep = false, onExtension, ...rest } = options
+    const { dir = tmpDir(), wait = true, keep = false, onExtension, counter, ...rest } = options
+    if (counter) rest.typeorm = { ...rest.typeorm, ...counter.typeorm }
     const logs = captureLogs()
-    const Ext = lib.ReForgeDB ?? lib.ForgeDB
-    const extension = new Ext(dbOptions(dir, rest))
+    const extension = new lib.ReForgeDB(dbOptions(dir, rest))
     // Runs before the connection is made, e.g. to listen for "connect".
     onExtension?.(extension)
     const client = new ForgeClient({ intents: ["Guilds"], extensions: [extension], prefixes: ["!"] })
     const cache = fillCache(client)
     const DataBase = client.db
     if (wait) {
-        if (typeof DataBase.ready === "function") await DataBase.ready()
-        else {
-            // The original ForgeDB has no ready(): poll its private connection.
-            const start = Date.now()
-            while (!DataBase["db"]) {
-                if (Date.now() - start > 15000) throw new Error("ForgeDB did not connect")
-                await new Promise((r) => setTimeout(r, 25))
-            }
-        }
+        await DataBase.ready()
+        counter?.attach(DataBase.dataSource)
         if (server && !keep) {
             await DataBase.wipe()
             await DataBase.cdWipe()
@@ -209,29 +206,46 @@ async function boot(options = {}) {
     return { client, extension, lib, DataBase, run, exec, cache, dir, logs, logsOf, ids, external: server }
 }
 
+/** MongoDB commands that are not the work of an operation (handshakes, cursors, sessions). */
+const IGNORED_COMMANDS = new Set(["hello", "ismaster", "isMaster", "ping", "endSessions", "getMore", "killCursors", "buildInfo", "saslStart", "saslContinue", "listIndexes", "createIndexes", "listCollections"])
+
 /**
- * A TypeORM logger that counts statements, passed through the `typeorm`
- * option: `typeorm: queryCounter.typeorm`. Schema set-up queries are counted
- * too, so read `count` relative to a mark.
+ * Counts the statements (SQL) or commands (MongoDB) the database receives.
+ * Pass it to boot() as `counter`. Read `count` relative to a mark, or use
+ * `during(fn)`.
  */
 function queryCounter() {
     const counter = {
         count: 0,
         queries: [],
-        typeorm: {
-            logging: ["query"],
-            logger: {
-                logQuery(query) {
-                    if (/^(BEGIN|COMMIT|START TRANSACTION|ROLLBACK|PRAGMA)/i.test(query)) return
-                    counter.count++
-                    counter.queries.push(query)
-                },
-                logQueryError() {},
-                logQuerySlow() {},
-                logSchemaBuild() {},
-                logMigration() {},
-                log() {},
-            },
+        record(text) {
+            counter.count++
+            counter.queries.push(text)
+        },
+        /** TypeORM options that make the database report what it runs. */
+        typeorm:
+            kind === "mongodb"
+                ? { monitorCommands: true }
+                : {
+                      logging: ["query"],
+                      logger: {
+                          logQuery(query) {
+                              if (/^(BEGIN|COMMIT|START TRANSACTION|ROLLBACK|PRAGMA)/i.test(query)) return
+                              counter.record(query)
+                          },
+                          logQueryError() {},
+                          logQuerySlow() {},
+                          logSchemaBuild() {},
+                          logMigration() {},
+                          log() {},
+                      },
+                  },
+        /** Starts counting MongoDB commands on a connected DataSource. */
+        attach(ds) {
+            if (kind !== "mongodb") return
+            ds.driver.queryRunner.databaseConnection.on("commandStarted", (event) => {
+                if (!IGNORED_COMMANDS.has(event.commandName)) counter.record(JSON.stringify(event.command))
+            })
         },
         /** Statements run by `fn`. */
         async during(fn) {
@@ -246,7 +260,5 @@ function queryCounter() {
 
 /** A Discord-like ID that is exact as a string (no float rounding). */
 const snowflake = (n) => "9" + String(n).padStart(17, "0")
-
-const kind = !external || fileBased(external.type) ? "sqlite" : ["mysql", "mariadb"].includes(external.type) ? "mysql" : external.type
 
 module.exports = { boot, ids, tmpDir, dbOptions, root, lib, snowflake, queryCounter, external: server, kind }
