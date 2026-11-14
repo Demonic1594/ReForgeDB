@@ -173,6 +173,35 @@ test("message, global and legacy variables", async () => {
     await DB.wipe()
 })
 
+test("mentions are accepted wherever an ID is", async () => {
+    assert.equal(await run(`$setUserVar[m;1;<@${ids.user2}>]$getUserVar[m;<@!${ids.user2}>]$getUserVar[m;${ids.user2}]`), "11")
+    assert.equal(await run(`$setChannelVar[m;2;<#${ids.channel2}>]$getChannelVar[m;${ids.channel2}]`), "2")
+    assert.equal(await run(`$setMemberVar[m;3;<@${ids.user3}>]$getMemberVar[m;${ids.user3}]`), "3")
+    assert.equal(await run(`$deleteRoleVar[m;<@&${ids.role}>]$dbUserCooldown[mc;1h;;<@${ids.user2}>]$dbGetUserCooldownTime[mc;${ids.user2}]`).then((v) => Number(v) > 0), true)
+    assert.ok(await DB.get({ identifier: `user_m_${ids.user2}` }), "stored under the plain ID")
+    assert.equal(await DB.get({ identifier: `user_m_<@${ids.user2}>` }), null)
+    await DB.wipe()
+    await DB.cdWipe()
+})
+
+test("an unknown channel is looked up on Discord once, not on every call", async () => {
+    const gone = "322222222222222222"
+    const real = h.client.channels.fetch
+    let fetches = 0
+    h.client.channels.fetch = async (...args) => {
+        fetches++
+        throw new Error("Unknown Channel")
+    }
+    try {
+        for (let i = 0; i < 5; i++) await run(`$setChannelVar[x;${i};${gone}]$getChannelVar[x;${gone}]`)
+        assert.equal(fetches, 1)
+        assert.equal(await run(`$getChannelVar[x;${gone}]`), "4")
+    } finally {
+        h.client.channels.fetch = real
+    }
+    await DB.wipe()
+})
+
 test("a missing context gives a catchable error, not a crash", async () => {
     const dm = { obj: h.cache.dmMessage }
     assert.match(await errorOf("$getMemberVar[xp]", dm), /No member ID was given/)
@@ -350,6 +379,16 @@ test("$searchDB filters by name, id, type, value and guild", async () => {
     const { identifier, name, id, type, value, guildId = null } = row
     assert.deepEqual({ identifier, name, id, type, value, guildId }, { identifier: `user_coins_${ids.user}`, name: "coins", id: ids.user, type: "user", value: "5", guildId: null })
     assert.match(await errorOf("$searchDB[;;nonsense]"), /type/)
+})
+
+test("$searchDB: patterns that could hang a database are safe or refused", async () => {
+    const before = JSON.parse(await run("$searchDB[co%]")).length
+    const started = Date.now()
+    assert.equal(JSON.parse(await run(`$searchDB[${"%".repeat(20)}c${"%".repeat(20)}o%]`)).length, before)
+    assert.deepEqual(JSON.parse(await run(`$searchDB[${"%a".repeat(15)}%zz]`)), [])
+    assert.ok(Date.now() - started < 3000)
+    assert.match(await errorOf(`$searchDB[${"x".repeat(1001)}]`), /search pattern may be at most 1000 characters/)
+    assert.match(await errorOf(`$deleteRecords[${"x".repeat(1001)}]`), /search pattern may be at most 1000 characters/)
 })
 
 test("$getDB returns everything", async () => {

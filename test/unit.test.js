@@ -5,7 +5,7 @@ const assert = require("node:assert/strict")
 const path = require("path")
 const root = path.join(__dirname, "..")
 const lib = require(root)
-const { KeyedMutex, LRUCache, likeToRegExp, compareIds, rankValue, chunk } = require(path.join(root, "dist/util/primitives"))
+const { KeyedMutex, LRUCache, likeMatcher, likePrefix, normalizeLike, escapeRegExp, MAX_LIKE_LENGTH, compareIds, rankValue, chunk } = require(path.join(root, "dist/util/primitives"))
 const { resolveSettings, Leaderboard } = require(path.join(root, "dist/util/database"))
 const { pickId, pickText, sortOf, positiveInt, pagesOf, variableTypeOf, eventRecord } = require(path.join(root, "dist/util/functions"))
 const { ReForgeDBLogger } = require(path.join(root, "dist/util/logger"))
@@ -55,6 +55,17 @@ test("pickId treats empty arguments as not given", () => {
     assert.equal(pickId({ id: "456" }), "456")
     assert.equal(pickId({ id: "" }), undefined)
     assert.equal(pickId({}), undefined)
+    // Mentions stand for their ID.
+    assert.equal(pickId("<@200000000000000001>"), "200000000000000001")
+    assert.equal(pickId("<@!200000000000000001>"), "200000000000000001")
+    assert.equal(pickId("<#300000000000000001>"), "300000000000000001")
+    assert.equal(pickId("<@&400000000000000001>"), "400000000000000001")
+    assert.equal(pickId(" <@200000000000000001> "), "200000000000000001")
+    // Anything else is kept as given.
+    assert.equal(pickId("<@abc>"), "<@abc>")
+    assert.equal(pickId("<@123>"), "<@123>", "too short for a Discord ID")
+    assert.equal(pickId("<:emoji:500000000000000001>"), "<:emoji:500000000000000001>")
+    assert.equal(pickId("custom-key"), "custom-key")
     assert.equal(pickText(""), undefined)
     assert.equal(pickText("0"), "0")
     assert.equal(pickText(" "), " ")
@@ -137,8 +148,8 @@ test("compareIds orders snowflakes numerically", () => {
     assert.deepEqual([...ids].sort(compareIds), ["1", "4", "30", "200"])
 })
 
-test("likeToRegExp matches like SQL LIKE", () => {
-    const m = (pattern, text) => likeToRegExp(pattern).test(text)
+test("likeMatcher matches like SQL LIKE", () => {
+    const m = (pattern, text) => likeMatcher(pattern)(text)
     assert.ok(m("coins", "coins"))
     assert.ok(m("coins", "COINS"))
     assert.ok(!m("coins", "coins2"))
@@ -147,13 +158,44 @@ test("likeToRegExp matches like SQL LIKE", () => {
     assert.ok(m("%coin%", "my coins"))
     assert.ok(m("c_ins", "coins"))
     assert.ok(!m("c_ins", "cooins"))
+    assert.ok(!m("c_ins", "cins"))
     assert.ok(m("%", ""))
     assert.ok(m("%", "multi\nline"))
+    assert.ok(m("%a%b%", "xaxxbx"))
+    assert.ok(!m("%a%b", "xaxxbx"))
+    assert.ok(m("a%a", "aa"))
+    assert.ok(!m("a%a", "a"))
+    assert.ok(m("__", "日本"), "one _ is one character, also outside ASCII")
+    assert.ok(m("%🎉", "party 🎉"))
     // Regex characters are literal.
     assert.ok(m("a.b", "a.b"))
     assert.ok(!m("a.b", "axb"))
     assert.ok(m("(x)[y]{z}^$|\\+*?", "(x)[y]{z}^$|\\+*?"))
     assert.ok(!m(".*", "anything"))
+    assert.ok(!m("x", null))
+    assert.ok(!m("x", 5))
+})
+
+test("a pathological pattern takes linear time", () => {
+    // As a regular expression this did not finish within a minute on 30 characters.
+    const pattern = "%".repeat(10) + "a%".repeat(10) + "b"
+    const started = performance.now()
+    assert.equal(likeMatcher(pattern)("a".repeat(5000)), false)
+    assert.equal(likeMatcher(pattern)("a".repeat(5000) + "b"), true)
+    assert.ok(performance.now() - started < 500, `${(performance.now() - started).toFixed(0)} ms`)
+})
+
+test("patterns are normalized and bounded; prefixes are literal", () => {
+    assert.equal(normalizeLike("%%a%%%b%"), "%a%b%")
+    assert.equal(normalizeLike("a_b"), "a_b")
+    assert.equal(normalizeLike("x".repeat(MAX_LIKE_LENGTH)).length, MAX_LIKE_LENGTH)
+    assert.throws(() => normalizeLike("x".repeat(MAX_LIKE_LENGTH + 1)), /at most 1000 characters/)
+    assert.equal(likePrefix("coins%"), "coins")
+    assert.equal(likePrefix("co_ns"), "co")
+    assert.equal(likePrefix("%x"), "")
+    assert.equal(likePrefix("plain"), "plain")
+    assert.equal(escapeRegExp("a.b*(c)[d]\\e/f$^|+?{}"), "a\\.b\\*\\(c\\)\\[d\\]\\\\e\\/f\\$\\^\\|\\+\\?\\{\\}")
+    assert.ok(new RegExp("^" + escapeRegExp("(a+)+$")).test("(a+)+$"))
 })
 
 test("chunk", () => {
@@ -184,6 +226,25 @@ test("LRUCache evicts the least recently used and honours ttl", async () => {
     await new Promise((r) => setTimeout(r, 50))
     assert.equal(t.get("x"), undefined)
     assert.equal(t.size, 0)
+})
+
+test("LRUCache with a weight bound evicts until the total fits", () => {
+    const c = new LRUCache(100, 0, 10, (v) => v.length)
+    c.set("a", "xxxx")
+    c.set("b", "xxxx")
+    assert.equal(c.weight, 8)
+    c.set("c", "xxxx") // 12 > 10: the oldest goes
+    assert.equal(c.get("a"), undefined)
+    assert.equal(c.weight, 8)
+    c.set("huge", "x".repeat(11)) // heavier than the bound: not kept at all
+    assert.equal(c.get("huge"), undefined)
+    assert.equal(c.size, 2)
+    c.set("b", "x") // replacing an entry updates the weight
+    assert.equal(c.weight, 5)
+    c.delete("b")
+    assert.equal(c.weight, 4)
+    c.clear()
+    assert.equal(c.weight, 0)
 })
 
 test("LRUCache stays within its bound under load", () => {

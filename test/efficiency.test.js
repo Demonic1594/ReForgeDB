@@ -58,6 +58,19 @@ test("a leaderboard command scans the variable once, however many functions it u
     await DB.wipe()
 })
 
+test("change tracking stays bounded with endless distinct variable names", async () => {
+    // Bots build names from IDs (warn_<user>). Only names with a leaderboard are tracked.
+    const tracked = DB["generations"].size
+    try {
+        for (let i = 0; i < 3000; i++) await DB.set({ name: `warn_${i}`, type: "custom", value: "1" })
+        assert.equal(DB["generations"].size, tracked)
+        await DB.leaderboard({ type: "user", name: "a-new-board" })
+        assert.equal(DB["generations"].size, tracked + 1)
+    } finally {
+        await DB.wipe()
+    }
+})
+
 test("$deleteRecords is one statement without delete listeners", async () => {
     for (let i = 0; i < 300; i++) await DB.set({ ...user("bulk", snowflake(i)), value: "1" })
     // ForgeDB: 1 search + (1 SELECT + 1 DELETE) per row = 601 statements.
