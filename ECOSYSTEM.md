@@ -6,14 +6,14 @@ Reworked forks of tryforge's ForgeScript extensions, built to work together. ReF
 
 | | ReForgeDB 3.x | ForgeDB 2.x |
 |---|---|---|
-| **ReForgeGiveaways** 3.0.0+ | ✅ (recommended) | ✅, with a one-time reminder to switch |
+| **ReForgeGiveaways** 2.3.0+ | ✅ (recommended) | ✅, with a one-time reminder to switch |
 | ReForgeGiveaways ≤ 2.2.1 | ❌ requires `forge.db` | ✅ |
-| **ReForgeTopGG** 3.1.0+, `store: "forgedb"` | ✅ (recommended) | ✅, with a one-time reminder to switch |
+| **ReForgeTopGG** 3.1.0+, `store: "reforgedb"` (or `"forgedb"`, the same store) | ✅ (recommended) | ✅, with a one-time reminder to switch |
 | ReForgeTopGG ≤ 3.0.0, `store: "forgedb"` | ❌ requires `forge.db` | ✅ |
 | ReForgeTopGG, other stores | not needed | not needed |
 | Original ForgeGiveaways / ForgeTopGG | ❌ | ✅ |
 
-Each extension's CI tests the pairs that interact: ReForgeGiveaways runs every test file with ForgeDB and with ReForgeDB, and ReForgeTopGG tests its `"forgedb"` store with both. ReForgeDB is pinned there to a commit or tag in `package.json`.
+Each extension's CI tests the pairs that interact: ReForgeGiveaways runs every test file with ForgeDB and with ReForgeDB, and ReForgeTopGG tests its database store with each and with both loaded. ReForgeDB is pinned there to a tag in `package.json`. Both use whichever database extension the bot loaded, anywhere in the extension list, and ReForgeDB when both are.
 
 ## Checklist
 
@@ -41,7 +41,7 @@ Each extension's CI tests the pairs that interact: ReForgeGiveaways runs every t
 
 **Users' data and installs**
 - Never move, rename or change a user's files or data without an option that lets them choose.
-- Don't change defaults that alter what users must install (peer dependencies, `engines`).
+- Don't change defaults that alter what users must install (peer dependencies, `engines`) without saying so in the upgrade notes. The database extensions are optional peers of the other ReForge extensions, so npm installs only the one the bot depends on.
 
 **Tests**
 - Tests boot a real ForgeScript client (never logged in) and run ForgeScript code through the real interpreter. Only the outside world (Discord's API, Top.gg) is stubbed, never the extension.
@@ -56,14 +56,14 @@ Each extension's CI tests the pairs that interact: ReForgeGiveaways runs every t
 **Releases and docs**
 - README in the same layout (contents, why, installation, options, functions, events, switching from the original, upgrading, notes, development, credits).
 - CHANGELOG entry with upgrade notes for each release.
-- Merge with a merge commit, tag that commit with an annotated tag `v<x.y.z>`, push the tag.
+- Merge with a merge commit, tag that commit with an annotated tag `v<x.y.z>`, push the tag. Pushing the tag publishes the GitHub release (`.github/workflows/release.yml`), with the notes from `.github/release-notes/v<x.y.z>.md` or the version's CHANGELOG section; the workflow refuses a tag that does not match `package.json`.
 
 ## Status
 
 | | Naming | Logging | Either database | Node 22/24 + ForgeScript 2.5 CI | Pair CI |
 |---|---|---|---|---|---|
 | ReForgeDB 3.2.0 | ✅ | ✅ | (is the database) | ✅ | n/a |
-| ReForgeGiveaways 3.0.0 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| ReForgeGiveaways 2.3.0 | ✅ | ✅ | ✅ | ✅ | ✅ |
 | ReForgeTopGG 3.1.0 | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 All three keep `engines: node >=18.17` although CI tests 22 and newer (ForgeScript 2.8 itself needs Node.js 22): raising it would change what users can install.
