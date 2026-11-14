@@ -35,7 +35,7 @@ ReForgeDB is a reworked, hardened and faster database extension for ForgeScript:
 - 🛡️ **Survives a database that is down.** It reconnects by itself, and functions answer with an error your code can catch instead of crashing the bot.
 - ⚡ **Faster.** Writes are 3 to 10 times faster, a leaderboard command scans its variable once instead of once per function, and deleting thousands of variables is one statement.
 - 🔎 **Tells you what is wrong.** Clear errors that `$try` can catch, five log levels up to every SQL statement, and warnings for slow operations.
-- 🧪 **Tested.** 96 tests on SQLite, better-sqlite3, PostgreSQL and MariaDB, on ForgeScript 2.5 and 2.8.
+- 🧪 **Tested.** 96 tests, run in CI on SQLite, better-sqlite3, PostgreSQL, MariaDB, MySQL and MongoDB, on ForgeScript 2.5 and 2.8.
 
 <details>
 <summary><b>Everything fixed compared to ForgeDB 2.1.1</b></summary>
@@ -337,7 +337,7 @@ and declares the dependency with `requireExtensions = ["reforge.db"]`. `getDB()`
 
 <h3 align="center">Notes and Limits</h3><hr>
 
-- Tested on SQLite (`sqlite3` and `better-sqlite3`), PostgreSQL 16 and MariaDB 10.11. **MongoDB has not been tested against a live server** in this release: its code paths are separate and were reviewed, not run.
+- CI runs every test on SQLite (`sqlite3` and `better-sqlite3`), PostgreSQL 16, MariaDB 10.11 and MySQL 8.4. On MongoDB 7 it runs the function, event and extension-API tests; the upgrade, statement-count, cache and outage tests are written for SQL and do not run there yet.
 - A cooldown cannot be claimed twice within one bot process. Two processes sharing a database could each let one claim through at the same instant.
 - Leaderboards are sorted in memory: fine for tens of thousands of entries per variable, not meant for millions.
 - On MySQL and MariaDB, a variable name, an ID and the key built from them are limited to 255 characters; longer ones are refused with a clear error.

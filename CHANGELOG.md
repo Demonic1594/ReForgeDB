@@ -96,7 +96,7 @@ Measured against ForgeDB 2.1.1 with the same script on one machine.
 - `$env[row;...]` in leaderboard code also has `name`, `type`, `identifier` and `guildId`.
 - `$deleteRoleVar[name;role ID;guild ID?]` and `$deleteMemberVar` work for roles and guilds that no longer exist.
 - `DataBaseManager` internals are `#private`: an extension's subclass can define `connect()`, `open()` or `prepare()` without breaking it.
-- Test suite (96 tests) and CI on SQLite, better-sqlite3, PostgreSQL and MariaDB.
+- Test suite (96 tests) and CI on SQLite, better-sqlite3, PostgreSQL 16, MariaDB 10.11, MySQL 8.4 and MongoDB 7.
 
 ### Changed
 - `$dbPing` has output type `Number`; `$searchDB` output type `Json`.
@@ -106,7 +106,7 @@ Measured against ForgeDB 2.1.1 with the same script on one machine.
 
 ### Notes
 - First start on a ForgeDB database: an index is added to `record`; on MySQL and PostgreSQL the `startedAt` and `duration` columns of `cooldown` become `bigint` (TypeORM re-creates them; they could not hold a valid cooldown before). SQLite switches to write-ahead logging.
-- MongoDB was not tested against a live server in this release.
+- On MongoDB, CI runs the function, event and extension-API tests; the upgrade, statement-count, cache and outage tests are written for SQL and do not run there yet.
 - The typedoc output (`docs/`) and the two guides about leaving ForgeDB 1.x are no longer in the repository; `npm run docs` builds the former.
 
 ## Earlier versions
