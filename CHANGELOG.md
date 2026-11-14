@@ -15,7 +15,7 @@ Existing databases are used as they are: same tables, same keys, same SQLite fil
 ### Fixed: cooldowns
 - **Eleven cooldown functions never loaded.** ForgeScript has built-in (checked in 2.3.0, 2.4.1, 2.5.0 and 2.8.0) `$userCooldown`, `$memberCooldown`, `$guildCooldown`, `$channelCooldown` and their `delete`/`get` functions, and refuses to let an extension replace them (`Attempted to override the following 11 functions`). ForgeDB's stored cooldowns were never used: code written from its documentation ran ForgeScript's in-memory, per-command cooldowns, with the arguments in another order (`[user ID;duration;code]`), and lost them on restart. The stored cooldowns are now `$dbUserCooldown`, `$dbMemberCooldown`, `$dbGuildCooldown`, `$dbChannelCooldown`, `$dbGet...CooldownTime` and `$dbDelete...Cooldown`.
 - **No cooldown could be stored on MySQL or PostgreSQL.** The start time (milliseconds) went into a 32-bit `integer` column: every write failed with `value "1794590291693" is out of range for type integer`. On MySQL without strict mode it was clamped instead, which made every cooldown look expired. The columns are 64-bit on these databases now; durations over 24.8 days work too.
-- **A cooldown could be passed twice.** The check and the start were separate steps, so two commands at once (a spammed `!daily`) both got through. Claims of the same cooldown now run one at a time: of 20 at once, exactly one passes.
+- **A cooldown could be passed twice.** The check and the start were separate steps, so two commands at once (a spammed `!daily`) both got through. A claim now starts the cooldown with a conditional write (only if it is still free), so the database decides even between several bot processes: of 60 claims from 6 processes at the same moment, exactly one passes. Claims in one process also queue up, so they do not race in the database for nothing.
 - In the code that never loaded, `$memberCooldown` ignored its guild argument and `$userCooldown` its user argument. `$getChannelCooldownTime`, one of the four that did load, typed its channel as a guild and rejected every channel ID.
 - `$delete...Cooldown` did not wait for the database, so a failure became an unhandled rejection.
 - Expired cooldowns stayed in the database forever. They are deleted once an hour (`cooldownSweepInterval`).
@@ -68,6 +68,7 @@ Existing databases are used as they are: same tables, same keys, same SQLite fil
 ### Security
 - Updated TypeORM to 0.3.31 (SQL injection advisory in 0.3.26) and the development dependency `sqlite3` to 6 (its `tar` dependency had a critical advisory). `npm audit --omit=dev` reports three moderate findings in `glob`/`minimatch`, pulled in by TypeORM 0.3 for file-pattern loading, which ReForgeDB does not use.
 - `$deleteRecords` can no longer wipe the database by accident (see above).
+- A `$searchDB` or `$deleteRecords` pattern such as `%a%a%a%a%b` became a regular expression on MongoDB that could run for minutes on the database server. MongoDB is now sent only the pattern's literal start, and `%`/`_` are matched by ReForgeDB in linear time. On every database runs of `%` are collapsed and patterns are limited to 1,000 characters.
 
 ### Performance
 Measured against ForgeDB 2.1.1 with the same script on one machine.
@@ -88,6 +89,7 @@ Measured against ForgeDB 2.1.1 with the same script on one machine.
 - A leaderboard reads two columns and is sorted once, then reused for 2 s or until a write by the same process (`leaderboardCacheTTL`): a command with a page, a position and a page count scans once instead of three times.
 - `$deleteRecords` is one statement without delete listeners (was one search plus a read and a delete per row); `$delete...Var` is one statement (was two).
 - Optional read cache (`cache`), for bots with one process.
+- Memory stays bounded: a write only updates change counters of variables that have a leaderboard (bots build names from IDs, so counting every name ever written grew without end), and cached leaderboards hold at most a million entries in total.
 
 ### Added
 - Options: `logLevel`, `slowQueryThreshold`, `cache`, `leaderboardCacheTTL`, `cooldownSweepInterval`, `readyTimeout`, `synchronize`, `wal`, `charset`, `typeorm`; database type `mariadb`. Options are validated at start-up.
@@ -98,9 +100,13 @@ Measured against ForgeDB 2.1.1 with the same script on one machine.
 - `$env[row;...]` in leaderboard code also has `name`, `type`, `identifier` and `guildId`.
 - `$deleteRoleVar[name;role ID;guild ID?]` and `$deleteMemberVar` work for roles and guilds that no longer exist.
 - `DataBaseManager` internals are `#private`: an extension's subclass can define `connect()`, `open()` or `prepare()` without breaking it.
+- Mentions are accepted wherever an ID is (`<@id>`, `<@!id>`, `<#id>`, `<@&id>`): they used to be stored under the mention text, a variable nobody could find again.
+- An unknown channel ID is looked up on Discord once per 10 minutes instead of on every call, so cleaning up a deleted channel's variables does not cost one API request each.
+- With `cache` on in a bot that runs in several processes (sharding), a warning explains why that cache can be stale.
 - `client.db.clearCache()`, to see changes made outside ReForgeDB with the read cache on.
 - `DataBaseManager` hooks for extensions: `previousDatabase` and `previousDatabaseAction` (use, copy, rename or ignore an SQLite file of an earlier name) and `beforeSynchronize(dataSource)`.
-- Test suite (111 tests), run in CI on SQLite, better-sqlite3, PostgreSQL 16, MariaDB 10.11, MySQL 8.4 and MongoDB 7.
+- A seeded fuzz test: random concurrent writes, reads, deletes, searches and leaderboards with 5% injected database failures, compared with an in-memory model after every step, with the cache on and off (`FUZZ_SEED` replays a run).
+- Test suite (128 tests), run in CI on SQLite, better-sqlite3, PostgreSQL 16, MariaDB 10.11, MySQL 8.4 and MongoDB 7.
 
 ### Changed
 - `$dbPing` has output type `Number`; `$searchDB` output type `Json`.

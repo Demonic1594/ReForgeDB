@@ -35,7 +35,7 @@ ReForgeDB is a reworked, hardened and faster database extension for ForgeScript:
 - 🛡️ **Survives a database that is down.** It reconnects by itself, and functions answer with an error your code can catch instead of crashing the bot.
 - ⚡ **Faster.** Writes are 3 to 10 times faster, a leaderboard command scans its variable once instead of once per function, and deleting thousands of variables is one statement.
 - 🔎 **Tells you what is wrong.** Clear errors that `$try` can catch, five log levels up to every SQL statement, and warnings for slow operations.
-- 🧪 **Tested.** 111 tests, run in CI on SQLite, better-sqlite3, PostgreSQL, MariaDB, MySQL and MongoDB, on ForgeScript 2.5 and 2.8.
+- 🧪 **Tested.** 128 tests, including a seeded fuzz test with injected database failures, run in CI on SQLite, better-sqlite3, PostgreSQL, MariaDB, MySQL and MongoDB, on ForgeScript 2.5 and 2.8.
 
 <details>
 <summary><b>Everything fixed compared to ForgeDB 2.1.1</b></summary>
@@ -67,7 +67,7 @@ The full list, with what changed for your code, is in the [changelog](CHANGELOG.
     | Database | `type` | Install |
     |---|---|---|
     | SQLite (default) | `sqlite` | `npm i github:Demonic1594/ReForgeDB sqlite3` |
-    | SQLite, faster driver | `better-sqlite3` | `npm i github:Demonic1594/ReForgeDB better-sqlite3` |
+    | SQLite, faster driver (reads about 15 times faster here) | `better-sqlite3` | `npm i github:Demonic1594/ReForgeDB better-sqlite3` |
     | PostgreSQL | `postgres` | `npm i github:Demonic1594/ReForgeDB pg` |
     | MySQL | `mysql` | `npm i github:Demonic1594/ReForgeDB mysql2` |
     | MariaDB | `mariadb` | `npm i github:Demonic1594/ReForgeDB mysql2` |
@@ -358,7 +358,8 @@ and declares the dependency with `requireExtensions = ["reforge.db"]`. `getDB()`
 <h3 align="center">Notes and Limits</h3><hr>
 
 - CI runs every test on SQLite (`sqlite3` and `better-sqlite3`), PostgreSQL 16, MariaDB 10.11, MySQL 8.4 and MongoDB 7.
-- A cooldown cannot be claimed twice within one bot process. Two processes sharing a database could each let one claim through at the same instant.
+- A cooldown cannot be claimed twice, also not by several bot processes sharing the database: the database decides which claim starts it.
+- On MongoDB, `%` and `_` in `$searchDB` and `$deleteRecords` patterns are matched by ReForgeDB on the rows whose name or value starts like the pattern, so a pattern that starts with `%` reads every variable of the other filters.
 - Leaderboards are sorted in memory: fine for tens of thousands of entries per variable, not meant for millions.
 - On MySQL and MariaDB, a variable name, an ID and the key built from them are limited to 255 characters; longer ones are refused with a clear error.
 - Values are text. Numbers are compared as numbers on leaderboards only.
