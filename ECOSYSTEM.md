@@ -64,7 +64,7 @@ Each extension's CI tests the pairs that interact: ReForgeGiveaways runs every t
 **Releases and docs**
 - README in the same layout (contents, why, installation, options, functions, events, switching from the original, upgrading, notes, development, credits).
 - CHANGELOG entry with upgrade notes for each release.
-- Merge with a merge commit, tag that commit with an annotated tag `v<x.y.z>`, push the tag. Pushing the tag publishes the GitHub release (`.github/workflows/release.yml`), with the notes from `.github/release-notes/v<x.y.z>.md` or the version's CHANGELOG section; the workflow refuses a tag that does not match `package.json`.
+- Merge with a merge commit, tag that commit with an annotated tag `v<x.y.z>`, push the tag. Pushing the tag publishes the GitHub release (`.github/workflows/release.yml`), with the notes from `.github/release-notes/v<x.y.z>.md` or the version's CHANGELOG section; the workflow refuses a tag that does not match `package.json`. Running the same workflow by hand (Actions, Release, Run workflow) publishes one tag's release, or every tag's that has none, without moving Latest off the highest version.
 
 ## Status
 
@@ -73,6 +73,6 @@ Each extension's CI tests the pairs that interact: ReForgeGiveaways runs every t
 | ReForgeDB 3.2.0 | ✅ | ✅ | (is the database) | ✅ | n/a | ✅ |
 | ReForgeGiveaways 2.3.0 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | ReForgeTopGG 3.1.0 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| ReForgeCanvas 2.0.0 | ✅ | ✅ | n/a (stores no data) | ✅ | n/a | ❌ no `release.yml` yet |
+| ReForgeCanvas 2.0.0 | ✅ | ✅ | n/a (stores no data) | ✅ | n/a | ✅ |
 
 All four keep `engines: node >=18.17` although CI tests 22 and newer (ForgeScript 2.8 itself needs Node.js 22): raising it would change what users can install.
