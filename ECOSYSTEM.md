@@ -11,7 +11,10 @@ Reworked forks of tryforge's ForgeScript extensions, built to work together. ReF
 | **ReForgeTopGG** 3.1.0+, `store: "reforgedb"` (or `"forgedb"`, the same store) | ✅ (recommended) | ✅, with a one-time reminder to switch |
 | ReForgeTopGG ≤ 3.0.0, `store: "forgedb"` | ❌ requires `forge.db` | ✅ |
 | ReForgeTopGG, other stores | not needed | not needed |
+| **ReForgeCanvas** 2.0.0+ | not needed (stores no data) | not needed |
 | Original ForgeGiveaways / ForgeTopGG | ❌ | ✅ |
+
+Load only one of each pair: ReForgeCanvas stops at start-up when the original ForgeCanvas is loaded too, as ReForgeTopGG does with ForgeTopGG, because both define the same functions.
 
 Each extension's CI tests the pairs that interact: ReForgeGiveaways runs every test file with ForgeDB and with ReForgeDB, and ReForgeTopGG tests its database store with each and with both loaded. ReForgeDB is pinned there to a tag in `package.json`. Both use whichever database extension the bot loaded, anywhere in the extension list, and ReForgeDB when both are.
 
@@ -39,6 +42,11 @@ Each extension's CI tests the pairs that interact: ReForgeGiveaways runs every t
 - Timers are unref'd and stopped by `client.destroy()`. Tests that need the process to stay up hold it open themselves.
 - With several bot processes on one database, an event fires in exactly one of them: claim it with a conditional write.
 
+**Untrusted input** (anything a command's user can type)
+- URLs and paths from users go through one loader with a timeout, a size cap, a redirect limit, and a refusal of non-public addresses that is checked on the resolved address, also after redirects (DNS rebinding). Local files are off until the bot names a folder. ReForgeCanvas is the reference.
+- Limit what a small input can cost: check an image's declared size in its header before decoding it, and cap canvas sizes, frame counts and per-call work with options whose defaults a normal bot never hits. Reproduce each case on the original first and measure memory and time.
+- Validate arguments before native code: a panic in a native library (Rust, C++) ends the whole process, and `$try` cannot catch it. A seeded fuzz test over every function finds these.
+
 **Users' data and installs**
 - Never move, rename or change a user's files or data without an option that lets them choose.
 - Don't change defaults that alter what users must install (peer dependencies, `engines`) without saying so in the upgrade notes. The database extensions are optional peers of the other ReForge extensions, so npm installs only the one the bot depends on.
@@ -56,14 +64,15 @@ Each extension's CI tests the pairs that interact: ReForgeGiveaways runs every t
 **Releases and docs**
 - README in the same layout (contents, why, installation, options, functions, events, switching from the original, upgrading, notes, development, credits).
 - CHANGELOG entry with upgrade notes for each release.
-- Merge with a merge commit, tag that commit with an annotated tag `v<x.y.z>`, push the tag. Pushing the tag publishes the GitHub release (`.github/workflows/release.yml`), with the notes from `.github/release-notes/v<x.y.z>.md` or the version's CHANGELOG section; the workflow refuses a tag that does not match `package.json`.
+- Merge with a merge commit, tag that commit with an annotated tag `v<x.y.z>`, push the tag. Pushing the tag publishes the GitHub release (`.github/workflows/release.yml`), with the notes from `.github/release-notes/v<x.y.z>.md` or the version's CHANGELOG section; the workflow refuses a tag that does not match `package.json`. Running the same workflow by hand (Actions, Release, Run workflow) publishes one tag's release, or every tag's that has none, without moving Latest off the highest version.
 
 ## Status
 
-| | Naming | Logging | Either database | Node 22/24 + ForgeScript 2.5 CI | Pair CI |
-|---|---|---|---|---|---|
-| ReForgeDB 3.2.0 | ✅ | ✅ | (is the database) | ✅ | n/a |
-| ReForgeGiveaways 2.3.0 | ✅ | ✅ | ✅ | ✅ | ✅ |
-| ReForgeTopGG 3.1.0 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| | Naming | Logging | Either database | Node 22/24 + ForgeScript 2.5 CI | Pair CI | Release from tag |
+|---|---|---|---|---|---|---|
+| ReForgeDB 3.2.0 | ✅ | ✅ | (is the database) | ✅ | n/a | ✅ |
+| ReForgeGiveaways 2.3.0 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| ReForgeTopGG 3.1.0 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| ReForgeCanvas 2.0.0 | ✅ | ✅ | n/a (stores no data) | ✅ | n/a | ✅ |
 
-All three keep `engines: node >=18.17` although CI tests 22 and newer (ForgeScript 2.8 itself needs Node.js 22): raising it would change what users can install.
+All four keep `engines: node >=18.17` although CI tests 22 and newer (ForgeScript 2.8 itself needs Node.js 22): raising it would change what users can install.
