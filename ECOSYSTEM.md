@@ -49,6 +49,7 @@ Each extension's CI tests the pairs that interact: ReForgeGiveaways runs every t
 
 **Users' data and installs**
 - Never move, rename or change a user's files or data without an option that lets them choose.
+- A dependency's advisory is fixed in the extension's own `dependencies`, not with npm `overrides`: npm reads overrides only from the bot's `package.json`, so a bot still installs the vulnerable copy. Check with `npm pack` into a fresh project and `npm audit --omit=dev`. ReForgeTopGG 3.2.0 dropped `@top-gg/sdk` (undici 5) for Node's built-in `fetch` for this reason.
 - Don't change defaults that alter what users must install (peer dependencies, `engines`) without saying so in the upgrade notes. The database extensions are optional peers of the other ReForge extensions, so npm installs only the one the bot depends on.
 
 **Tests**
@@ -72,7 +73,7 @@ Each extension's CI tests the pairs that interact: ReForgeGiveaways runs every t
 |---|---|---|---|---|---|---|
 | ReForgeDB 3.2.0 | ✅ | ✅ | (is the database) | ✅ | n/a | ✅ |
 | ReForgeGiveaways 2.3.0 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| ReForgeTopGG 3.1.0 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| ReForgeTopGG 3.2.0 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | ReForgeCanvas 2.0.0 | ✅ | ✅ | n/a (stores no data) | ✅ | n/a | ✅ |
 
 All four keep `engines: node >=18.17` although CI tests 22 and newer (ForgeScript 2.8 itself needs Node.js 22): raising it would change what users can install.
