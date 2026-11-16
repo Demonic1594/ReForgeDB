@@ -33,7 +33,7 @@ ReForgeDB is a reworked, hardened and faster database extension for ForgeScript:
 <h3 align="center">Why ReForgeDB</h3><hr>
 
 - 🗄️ **Your database keeps working.** Same tables and keys, and ForgeDB's `database/forge.db` keeps being used until you choose to move it. A test upgrades a ForgeDB database on every supported database.
-- ⏱️ **Cooldowns that work.** In ForgeDB, 11 of the 15 cooldown functions never loaded, and on MySQL and PostgreSQL no cooldown could be stored at all. ReForgeDB's survive restarts, take any duration, and cannot be claimed twice by spamming.
+- ⏱️ **Cooldowns that work.** In ForgeDB a spammed command could pass a cooldown twice, `$userCooldown` and `$memberCooldown` ignored their ID argument, and on MySQL and PostgreSQL no cooldown could be stored at all. ReForgeDB's survive restarts, take any duration, and cannot be claimed twice by spamming.
 - 🛡️ **Survives a database that is down.** It reconnects by itself, and functions answer with an error your code can catch instead of crashing the bot.
 - ⚡ **Faster.** Writes are 3 to 10 times faster, a leaderboard command scans its variable once instead of once per function, and deleting thousands of variables is one statement.
 - 🔎 **Tells you what is wrong.** Clear errors that `$try` can catch, five log levels up to every SQL statement, and warnings for slow operations.
@@ -42,7 +42,7 @@ ReForgeDB is a reworked, hardened and faster database extension for ForgeScript:
 <details>
 <summary><b>Everything fixed compared to ForgeDB 2.1.1</b></summary>
 
-- `$userCooldown`, `$memberCooldown`, `$guildCooldown`, `$channelCooldown` and their `delete`/`get` functions never loaded: ForgeScript has built-in functions with these names and refuses to replace them. Code written from ForgeDB's documentation silently ran ForgeScript's in-memory cooldowns, with the arguments in another order.
+- `$userCooldown` ignored its user argument and `$memberCooldown` its guild argument, and `$getChannelCooldownTime` typed its channel as a guild and rejected every channel ID. ReForgeDB's stored cooldowns are named `$dbUserCooldown` and so on (see [Cooldowns](#cooldowns)).
 - Every cooldown write failed on MySQL and PostgreSQL (`value out of range for type integer`): the time was stored in 32-bit columns.
 - Two commands at once could both pass the same cooldown.
 - An empty ID field (`$getUserVar[coins;;0]`, `$setUserVar[coins;5;]`) read and wrote a variable with an empty ID instead of the current user's.
@@ -194,7 +194,9 @@ The first call starts the cooldown and the command goes on. While it is running,
 | Global | `$globalCooldown[name;duration;code?]` | `$getGlobalCooldownTime[name]` | `$deleteGlobalCooldown[name]` |
 
 > ⚠️ **Warning**\
-> `$userCooldown`, `$memberCooldown`, `$guildCooldown` and `$channelCooldown` (without `db`) are ForgeScript's own functions: kept in memory, lost on restart, separate for each command, and with other arguments (`$userCooldown[user ID;duration;code]`). ForgeDB documented functions with the same names, but they never loaded. Put `db` in front to get the stored ones: `$userCooldown[` → `$dbUserCooldown[`, `$getUserCooldownTime[` → `$dbGetUserCooldownTime[`, `$deleteUserCooldown[` → `$dbDeleteUserCooldown[`.
+> `$userCooldown`, `$memberCooldown`, `$guildCooldown` and `$channelCooldown` (without `db`) are ForgeScript's own functions: kept in memory, lost on restart, separate for each command, and with other arguments (`$userCooldown[user ID;duration;code]`). ForgeDB used the same names for its stored cooldowns, and in a bot with ForgeDB they were ForgeDB's (an extension's function replaces ForgeScript's of the same name). ReForgeDB leaves these names to ForgeScript. Put `db` in front to get the stored ones: `$userCooldown[` → `$dbUserCooldown[`, `$getUserCooldownTime[` → `$dbGetUserCooldownTime[`, `$deleteUserCooldown[` → `$dbDeleteUserCooldown[`.
+>
+> After switching from ForgeDB, code that still says `$userCooldown[daily;1d;...]` runs ForgeScript's function, which reads `daily` as the user ID: one cooldown shared by **every** user (one user's `!daily` blocks everyone), kept only until the bot restarts. Rename every call when you switch.
 
 <h3 align="center">Default Values</h3><hr>
 
@@ -314,7 +316,7 @@ Your data stays where it is. ReForgeDB uses the same tables and keys, and takes 
     new ReForgeDB({ ... })                                 // was: new ForgeDB({ ... })
     ReForgeDB.variables({ ... })                           // was: ForgeDB.variables({ ... })
     ```
-4. Rename the cooldown functions as shown under [Cooldowns](#cooldowns), if you want stored cooldowns.
+4. **Rename the cooldown functions** (`$userCooldown` → `$dbUserCooldown` and the others, see [Cooldowns](#cooldowns)). This step is not optional: with ReForgeDB the old names are ForgeScript's in-memory cooldowns, so `$userCooldown[daily;1d;...]` would read `daily` as the user ID and give every user one shared cooldown. Search your commands for `Cooldown[` to find them.
 5. SQLite only: choose what happens to `database/forge.db` with the `forgeDBFile` option. It applies when `forge.db` is in the folder and `reforge.db` is not; nothing is moved unless you ask for it.
 
     | `forgeDBFile` | What happens |

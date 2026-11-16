@@ -1,8 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 // Persistent cooldown, stored in the database: it survives restarts.
-// ForgeScript has an in-memory $channelCooldown with other arguments; ForgeDB's
-// version of that name never loaded, so this one has the "db" prefix.
+// ForgeScript has an in-memory $channelCooldown with other arguments. ForgeDB replaced it
+// with its own of the same name; ReForgeDB leaves the name to ForgeScript and uses the "db" prefix.
 const forgescript_1 = require("@tryforge/forgescript");
 const functions_1 = require("../../util/functions");
 exports.default = new forgescript_1.NativeFunction({
