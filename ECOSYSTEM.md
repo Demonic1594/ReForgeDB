@@ -23,11 +23,13 @@ Each extension's CI tests the pairs that interact: ReForgeGiveaways runs every t
 **Naming**
 - Package `@tryforge/reforge.<name>`, class `ReForge<Name>`, extension name `reforge.<name>`, event handler `ReForge<Name>Events`.
 - The original's class and option-type names are not exported. Removing an exported name is a major version.
+- A function name an extension shares with ForgeScript replaces ForgeScript's: ForgeScript loads every extension's functions first and skips its own names that are taken (the start-up line `ForgeScript | Attempted to override ...` is ForgeScript's being skipped). Taking such a name, or giving one back, changes what existing commands run: say so in the upgrade notes and the switching guide. Check it with one client per process; a test harness that creates a second client sees the opposite.
 
 **Messages, logging and errors**
 - Everything printed starts with `[ReForge<Name>]`, and so do option errors (which stop the bot at start-up, from the constructor or `validateAndInit`, never from `init`) and function errors (which `$try` catches).
 - A `logLevel` option (`silent`, `error`, `warn`, `info`, `debug`, `trace`, default `info`) and a `REFORGE<NAME>_LOG_LEVEL` environment variable. `debug` shows every operation worth knowing about; `trace` every request or timer. Secrets, tokens and request bodies are never written at any level.
 - A failing listener or event command is logged; it never crashes the bot or fails the operation that emitted it.
+- A function never lets a library's error escape: an error thrown inside `execute` is not caught by `$try`; ForgeScript logs a stack trace and stops the command. Wrap native and library calls and return the error (`this.customError`). A seeded fuzz test that runs every function inside `$try` and counts the escapes finds these.
 
 **Database**
 - Accept ReForgeDB (`reforge.db`) or ForgeDB (`forge.db`), ReForgeDB when both are loaded, and stop at start-up with a message naming both when the extension needs one and neither is there. ForgeScript's `requireExtensions` can only ask for one, so check in `validateAndInit`.
@@ -44,7 +46,7 @@ Each extension's CI tests the pairs that interact: ReForgeGiveaways runs every t
 
 **Untrusted input** (anything a command's user can type)
 - URLs and paths from users go through one loader with a timeout, a size cap, a redirect limit, and a refusal of non-public addresses that is checked on the resolved address, also after redirects (DNS rebinding). Local files are off until the bot names a folder. ReForgeCanvas is the reference.
-- Limit what a small input can cost: check an image's declared size in its header before decoding it, and cap canvas sizes, frame counts and per-call work with options whose defaults a normal bot never hits. Reproduce each case on the original first and measure memory and time.
+- Limit what a small input can cost: check an image's declared size in its header before decoding it, and cap canvas sizes, frame counts and per-call work with options whose defaults a normal bot never hits. Where a header is only a guess (an SVG's `width="62.5in"` or `"6e3"`), check the real size too, before anything is drawn at it. Reproduce each case on the original first and measure memory and time.
 - Validate arguments before native code: a panic in a native library (Rust, C++) ends the whole process, and `$try` cannot catch it. A seeded fuzz test over every function finds these.
 
 **Users' data and installs**
@@ -58,8 +60,8 @@ Each extension's CI tests the pairs that interact: ReForgeGiveaways runs every t
 - Each repository keeps its own copy of its harness and logger (no shared package yet).
 
 **CI**
-- Node.js 22 and 24, and the oldest ForgeScript the peer range allows (2.5.0).
-- Every database the extension supports, and every pair with another extension that it interacts with.
+- Node.js 22 and 24, and the oldest ForgeScript the peer range allows (2.5.0 for `>=2.5.0`; 2.0.0 for ReForgeCanvas's `^2`).
+- Every database the extension supports, and every pair with another extension that it interacts with. Where that is not done yet, the README says which databases are untested (ReForgeGiveaways: MySQL, MariaDB and MongoDB).
 - `dist/` and `metadata/` are committed (the packages install from GitHub), and CI fails when they are stale.
 
 **Releases and docs**

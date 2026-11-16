@@ -1,6 +1,6 @@
 // Persistent cooldown, stored in the database: it survives restarts.
-// ForgeScript has an in-memory $memberCooldown with other arguments; ForgeDB's
-// version of that name never loaded, so this one has the "db" prefix.
+// ForgeScript has an in-memory $memberCooldown with other arguments. ForgeDB replaced it
+// with its own of the same name; ReForgeDB leaves the name to ForgeScript and uses the "db" prefix.
 import { ArgType, NativeFunction } from "@tryforge/forgescript"
 import { cooldownGate, guarded, requireId, resolveArgs } from "../../util/functions"
 

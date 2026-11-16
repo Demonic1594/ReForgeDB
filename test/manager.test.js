@@ -147,6 +147,7 @@ test("the extension registers as reforge.db", () => {
 })
 
 test("no function is refused by ForgeScript for clashing with a built-in", () => {
-    // ForgeDB shipped 11 cooldown functions whose names ForgeScript already had: they never loaded.
+    // A name an extension shares with ForgeScript replaces ForgeScript's function (extensions load first).
+    // ReForgeDB registers none of ForgeScript's names, so no built-in function changes meaning.
     assert.deepEqual(h.logs.filter((l) => /Attempted to override/.test(l.text)).map((l) => l.text), [])
 })
