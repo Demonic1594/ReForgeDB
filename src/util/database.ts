@@ -272,6 +272,8 @@ export function resolveSettings(options: IReForgeDBOptions | undefined): Setting
         throw new ReForgeDBError(`Unknown logLevel "${o.logLevel}". Use silent, error, warn, info, debug or trace.`)
     }
     if (o.events !== undefined && !Array.isArray(o.events)) throw new ReForgeDBError(`Option "events" must be an array of event names.`)
+    if (o.forgeDBCooldownNames !== undefined && typeof o.forgeDBCooldownNames !== "boolean")
+        throw new ReForgeDBError(`Option "forgeDBCooldownNames" must be true or false.`)
     const forgeDBFile = (o as { forgeDBFile?: unknown }).forgeDBFile
     if (forgeDBFile !== undefined && !["use", "copy", "rename", "ignore"].includes(forgeDBFile as string)) {
         throw new ReForgeDBError(`Unknown forgeDBFile "${String(forgeDBFile)}". Use use, copy, rename or ignore.`)

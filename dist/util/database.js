@@ -182,6 +182,8 @@ function resolveSettings(options) {
     }
     if (o.events !== undefined && !Array.isArray(o.events))
         throw new logger_1.ReForgeDBError(`Option "events" must be an array of event names.`);
+    if (o.forgeDBCooldownNames !== undefined && typeof o.forgeDBCooldownNames !== "boolean")
+        throw new logger_1.ReForgeDBError(`Option "forgeDBCooldownNames" must be true or false.`);
     const forgeDBFile = o.forgeDBFile;
     if (forgeDBFile !== undefined && !["use", "copy", "rename", "ignore"].includes(forgeDBFile)) {
         throw new logger_1.ReForgeDBError(`Unknown forgeDBFile "${String(forgeDBFile)}". Use use, copy, rename or ignore.`);

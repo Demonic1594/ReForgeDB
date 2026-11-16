@@ -54,8 +54,8 @@ export declare class ReForgeDB extends ForgeExtension {
         value: unknown;
     } | undefined;
 }
-export { DataBaseManager, DataBase, Leaderboard, ReForgeDBError, ReForgeDBLogger } from "./util";
-export type { IReForgeDBOptions, IDataBaseOptions, LogLevel, SearchFilter, LeaderboardQuery, LeaderboardEntry, StoredRecord, RecordData } from "./util";
+export { DataBaseManager, DataBase, Leaderboard, ReForgeDBError, ReForgeDBLogger, FORGEDB_COOLDOWN_NAMES, findLegacyCooldownCalls } from "./util";
+export type { IReForgeDBOptions, IDataBaseOptions, LogLevel, SearchFilter, LeaderboardQuery, LeaderboardEntry, StoredRecord, RecordData, LegacyCooldownCall } from "./util";
 export { EVENT_HANDLER_NAME } from "./structures";
 export type { IReForgeDBEvents } from "./structures";
 //# sourceMappingURL=index.d.ts.map

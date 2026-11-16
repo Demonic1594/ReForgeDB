@@ -1,6 +1,16 @@
 import { Compiler, EventManager, ForgeClient, ForgeExtension, IExtendedCompilationResult } from "@tryforge/forgescript"
 import { TypedEmitter } from "tiny-typed-emitter"
-import { DataBase, ReForgeDBLogger, errorMessage, IReForgeDBOptions, ReForgeDBError, resolveSettings } from "./util"
+import {
+    DataBase,
+    ReForgeDBLogger,
+    errorMessage,
+    IReForgeDBOptions,
+    ReForgeDBError,
+    readyEventName,
+    registerForgeDBCooldownNames,
+    resolveSettings,
+    warnLegacyCooldownCalls,
+} from "./util"
 import { ReForgeDBCommandManager, EVENT_HANDLER_NAME, IReForgeDBEvents } from "./structures"
 
 const pkg = require("../package.json") as { version: string; description: string }
@@ -61,6 +71,11 @@ export class ReForgeDB extends ForgeExtension {
 
         EventManager.load(EVENT_HANDLER_NAME, __dirname + "/events")
         this.load(__dirname + "/functions")
+
+        // ForgeDB's cooldown names: stored cooldowns when asked for; otherwise, once the commands are
+        // loaded, a warning about calls written for ForgeDB, which now run ForgeScript's in-memory ones.
+        if (this.options?.forgeDBCooldownNames) registerForgeDBCooldownNames()
+        else client.once(readyEventName() as "ready", () => void warnLegacyCooldownCalls(client))
 
         // Kept from ForgeDB: other code (QuorielDB's transfer, extensions) uses client.db.
         client.db = DataBase
@@ -126,7 +141,7 @@ export class ReForgeDB extends ForgeExtension {
     }
 }
 
-export { DataBaseManager, DataBase, Leaderboard, ReForgeDBError, ReForgeDBLogger } from "./util"
-export type { IReForgeDBOptions, IDataBaseOptions, LogLevel, SearchFilter, LeaderboardQuery, LeaderboardEntry, StoredRecord, RecordData } from "./util"
+export { DataBaseManager, DataBase, Leaderboard, ReForgeDBError, ReForgeDBLogger, FORGEDB_COOLDOWN_NAMES, findLegacyCooldownCalls } from "./util"
+export type { IReForgeDBOptions, IDataBaseOptions, LogLevel, SearchFilter, LeaderboardQuery, LeaderboardEntry, StoredRecord, RecordData, LegacyCooldownCall } from "./util"
 export { EVENT_HANDLER_NAME } from "./structures"
 export type { IReForgeDBEvents } from "./structures"

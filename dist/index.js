@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.EVENT_HANDLER_NAME = exports.ReForgeDBLogger = exports.ReForgeDBError = exports.Leaderboard = exports.DataBase = exports.DataBaseManager = exports.ReForgeDB = void 0;
+exports.EVENT_HANDLER_NAME = exports.findLegacyCooldownCalls = exports.FORGEDB_COOLDOWN_NAMES = exports.ReForgeDBLogger = exports.ReForgeDBError = exports.Leaderboard = exports.DataBase = exports.DataBaseManager = exports.ReForgeDB = void 0;
 const forgescript_1 = require("@tryforge/forgescript");
 const tiny_typed_emitter_1 = require("tiny-typed-emitter");
 const util_1 = require("./util");
@@ -49,6 +49,12 @@ class ReForgeDB extends forgescript_1.ForgeExtension {
         this.commands = new structures_1.ReForgeDBCommandManager(client);
         forgescript_1.EventManager.load(structures_1.EVENT_HANDLER_NAME, __dirname + "/events");
         this.load(__dirname + "/functions");
+        // ForgeDB's cooldown names: stored cooldowns when asked for; otherwise, once the commands are
+        // loaded, a warning about calls written for ForgeDB, which now run ForgeScript's in-memory ones.
+        if (this.options?.forgeDBCooldownNames)
+            (0, util_1.registerForgeDBCooldownNames)();
+        else
+            client.once((0, util_1.readyEventName)(), () => void (0, util_1.warnLegacyCooldownCalls)(client));
         // Kept from ForgeDB: other code (QuorielDB's transfer, extensions) uses client.db.
         client.db = util_1.DataBase;
         if (this.options?.events?.length)
@@ -116,6 +122,8 @@ Object.defineProperty(exports, "DataBase", { enumerable: true, get: function () 
 Object.defineProperty(exports, "Leaderboard", { enumerable: true, get: function () { return util_2.Leaderboard; } });
 Object.defineProperty(exports, "ReForgeDBError", { enumerable: true, get: function () { return util_2.ReForgeDBError; } });
 Object.defineProperty(exports, "ReForgeDBLogger", { enumerable: true, get: function () { return util_2.ReForgeDBLogger; } });
+Object.defineProperty(exports, "FORGEDB_COOLDOWN_NAMES", { enumerable: true, get: function () { return util_2.FORGEDB_COOLDOWN_NAMES; } });
+Object.defineProperty(exports, "findLegacyCooldownCalls", { enumerable: true, get: function () { return util_2.findLegacyCooldownCalls; } });
 var structures_2 = require("./structures");
 Object.defineProperty(exports, "EVENT_HANDLER_NAME", { enumerable: true, get: function () { return structures_2.EVENT_HANDLER_NAME; } });
 //# sourceMappingURL=index.js.map
