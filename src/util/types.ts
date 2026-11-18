@@ -116,6 +116,15 @@ export interface IReForgeDBCommonOptions {
     synchronize?: boolean
 
     /**
+     * Also register ForgeDB's cooldown names (`$userCooldown`, `$getUserCooldownTime`,
+     * `$deleteUserCooldown` and the member, guild and channel ones) as stored cooldowns with ForgeDB's
+     * arguments: the same functions as `$dbUserCooldown` and the others. For bots switching from ForgeDB
+     * without renaming. Off by default: then these names are ForgeScript's in-memory cooldowns, whose
+     * first argument is an ID. Defaults to `false`.
+     */
+    forgeDBCooldownNames?: boolean
+
+    /**
      * Extra TypeORM `DataSource` options, merged over the ones ReForgeDB
      * builds (for example `{ ssl: { rejectUnauthorized: false } }` or
      * `{ extra: { max: 20 } }`).

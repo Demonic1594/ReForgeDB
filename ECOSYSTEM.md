@@ -73,7 +73,7 @@ Each extension's CI tests the pairs that interact: ReForgeGiveaways runs every t
 
 | | Naming | Logging | Either database | Node 22/24 + ForgeScript 2.5 CI | Pair CI | Release from tag |
 |---|---|---|---|---|---|---|
-| ReForgeDB 3.2.0 | ✅ | ✅ | (is the database) | ✅ | n/a | ✅ |
+| ReForgeDB 3.3.0 | ✅ | ✅ | (is the database) | ✅ | n/a | ✅ |
 | ReForgeGiveaways 2.3.0 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | ReForgeTopGG 3.2.0 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | ReForgeCanvas 2.0.0 | ✅ | ✅ | n/a (stores no data) | ✅ | n/a | ✅ |

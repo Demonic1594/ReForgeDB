@@ -37,7 +37,7 @@ ReForgeDB is a reworked, hardened and faster database extension for ForgeScript:
 - 🛡️ **Survives a database that is down.** It reconnects by itself, and functions answer with an error your code can catch instead of crashing the bot.
 - ⚡ **Faster.** Writes are 3 to 10 times faster, a leaderboard command scans its variable once instead of once per function, and deleting thousands of variables is one statement.
 - 🔎 **Tells you what is wrong.** Clear errors that `$try` can catch, five log levels up to every SQL statement, and warnings for slow operations.
-- 🧪 **Tested.** 160 tests, including a seeded fuzz test with injected database failures and switching between the two SQLite drivers under load, run in CI on SQLite, better-sqlite3, PostgreSQL, MariaDB, MySQL and MongoDB, on ForgeScript 2.5 and 2.8.
+- 🧪 **Tested.** 166 tests, including a seeded fuzz test with injected database failures and switching between the two SQLite drivers under load, run in CI on SQLite, better-sqlite3, PostgreSQL, MariaDB, MySQL and MongoDB, on ForgeScript 2.5 and 2.8.
 
 <details>
 <summary><b>Everything fixed compared to ForgeDB 2.1.1</b></summary>
@@ -76,7 +76,7 @@ The full list, with what changed for your code, is in the [changelog](CHANGELOG.
     | MongoDB | `mongodb` | `npm i github:Demonic1594/ReForgeDB mongodb` |
 
     > ℹ️ **Note**\
-    > The compiled code is committed, so no build step is needed. The command follows `main`; to pin a release, add its tag, e.g. `npm i github:Demonic1594/ReForgeDB#v3.2.0`.
+    > The compiled code is committed, so no build step is needed. The command follows `main`; to pin a release, add its tag, e.g. `npm i github:Demonic1594/ReForgeDB#v3.3.0`.
 
 2. Add it to your client:
     ```js
@@ -122,6 +122,7 @@ Requires Node.js 18.17 or newer (20.17 for `sqlite3` 6, 22 for ForgeScript 2.8) 
 | `cooldownExpireMaxDelay` | `43200000` | A cooldown that ran out while the bot was offline still fires `cooldownExpire` if it is at most this late (12 hours); older ones are dropped. At least `60000` |
 | `readyTimeout` | `30000` | How long (ms) a function waits for the database to connect before it fails |
 | `synchronize` | `true` | Let ReForgeDB create and update its tables |
+| `forgeDBCooldownNames` | `false` | Also give the stored cooldowns ForgeDB's names, `$userCooldown[name;duration;code?;user ID?]` and the other 10, for a bot switching from ForgeDB without renaming. Off: those names are ForgeScript's in-memory cooldowns (see [Cooldowns](#cooldowns)) |
 | `typeorm` | | Extra [TypeORM](https://typeorm.io/docs/data-source/data-source-options) options, e.g. `{ ssl: { rejectUnauthorized: false } }` |
 
 Invalid options stop the bot at start-up with a message that names the option.
@@ -196,7 +197,7 @@ The first call starts the cooldown and the command goes on. While it is running,
 > ⚠️ **Warning**\
 > `$userCooldown`, `$memberCooldown`, `$guildCooldown` and `$channelCooldown` (without `db`) are ForgeScript's own functions: kept in memory, lost on restart, separate for each command, and with other arguments (`$userCooldown[user ID;duration;code]`). ForgeDB used the same names for its stored cooldowns, and in a bot with ForgeDB they were ForgeDB's (an extension's function replaces ForgeScript's of the same name). ReForgeDB leaves these names to ForgeScript. Put `db` in front to get the stored ones: `$userCooldown[` → `$dbUserCooldown[`, `$getUserCooldownTime[` → `$dbGetUserCooldownTime[`, `$deleteUserCooldown[` → `$dbDeleteUserCooldown[`.
 >
-> After switching from ForgeDB, code that still says `$userCooldown[daily;1d;...]` runs ForgeScript's function, which reads `daily` as the user ID: one cooldown shared by **every** user (one user's `!daily` blocks everyone), kept only until the bot restarts. Rename every call when you switch.
+> After switching from ForgeDB, code that still says `$userCooldown[daily;1d;...]` runs ForgeScript's function, which reads `daily` as the user ID: one cooldown shared by **every** user (one user's `!daily` blocks everyone), kept only until the bot restarts. Rename every call when you switch, or set `forgeDBCooldownNames: true`, which gives the stored cooldowns ForgeDB's names as well (the plain names are then no longer ForgeScript's). Without the option, ReForgeDB warns at start-up about each call that looks written for ForgeDB (a first argument that is not an ID), with the command it is in.
 
 <h3 align="center">Default Values</h3><hr>
 
@@ -316,7 +317,7 @@ Your data stays where it is. ReForgeDB uses the same tables and keys, and takes 
     new ReForgeDB({ ... })                                 // was: new ForgeDB({ ... })
     ReForgeDB.variables({ ... })                           // was: ForgeDB.variables({ ... })
     ```
-4. **Rename the cooldown functions** (`$userCooldown` → `$dbUserCooldown` and the others, see [Cooldowns](#cooldowns)). This step is not optional: with ReForgeDB the old names are ForgeScript's in-memory cooldowns, so `$userCooldown[daily;1d;...]` would read `daily` as the user ID and give every user one shared cooldown. Search your commands for `Cooldown[` to find them.
+4. **Rename the cooldown functions** (`$userCooldown` → `$dbUserCooldown` and the others, see [Cooldowns](#cooldowns)). This step is not optional: with ReForgeDB the old names are ForgeScript's in-memory cooldowns, so `$userCooldown[daily;1d;...]` would read `daily` as the user ID and give every user one shared cooldown. ReForgeDB warns at start-up about each such call, with the command it is in. Or keep the old names: `new ReForgeDB({ forgeDBCooldownNames: true })` makes them the stored cooldowns, with ForgeDB's arguments.
 5. SQLite only: choose what happens to `database/forge.db` with the `forgeDBFile` option. It applies when `forge.db` is in the folder and `reforge.db` is not; nothing is moved unless you ask for it.
 
     | `forgeDBFile` | What happens |

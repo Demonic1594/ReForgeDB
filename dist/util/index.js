@@ -19,4 +19,5 @@ __exportStar(require("./types"), exports);
 __exportStar(require("./databaseManager"), exports);
 __exportStar(require("./logger"), exports);
 __exportStar(require("./primitives"), exports);
+__exportStar(require("./forgeDBNames"), exports);
 //# sourceMappingURL=index.js.map

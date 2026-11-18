@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.3.0 (ReForgeDB, November 2026)
+
+For bots switching from ForgeDB: its cooldown names can be kept, and a call written for them is reported at start-up. Nothing changes for a bot that sets nothing, apart from that warning.
+
+### Added
+- **`forgeDBCooldownNames` option** (off by default). On: `$userCooldown`, `$memberCooldown`, `$guildCooldown`, `$channelCooldown`, `$getUserCooldownTime`, `$getMemberCooldownTime`, `$getGuildCooldownTime`, `$deleteUserCooldown`, `$deleteMemberCooldown`, `$deleteGuildCooldown` and `$deleteChannelCooldown` are the stored cooldowns too, with ForgeDB's arguments (the same as the `$db` functions; checked against ForgeDB 2.1.1), so a bot switching from ForgeDB needs no renaming. They replace ForgeScript's in-memory cooldowns of those names, also when another client in the process loaded ForgeScript's first. ForgeScript then logs `Attempted to override the following 11 functions` at start-up: its own versions being skipped, as with ForgeDB.
+- **Start-up warning** (option off) for each call that looks written for ForgeDB's stored cooldowns: one of these names whose first argument is not an ID or a function, e.g. `$userCooldown[daily;1d;...]`. Such a call runs ForgeScript's in-memory cooldown, which reads `daily` as the user ID, so every user shares one cooldown, lost on restart (reproduced on 3.2.0: user A's claim blocks user B). The warning names the command and file and both fixes. It runs once, on the ready event, over the bot's commands, its application commands and the commands of extensions. `findLegacyCooldownCalls(client)` and `FORGEDB_COOLDOWN_NAMES` are exported.
+
+### Tests
+- `test/forgedb-names.test.js` (the option, after ForgeScript's functions were loaded first) and `test/forgedb-names-warning.test.js` (the warning): 5 of their 6 tests fail on 3.2.0. 166 tests on SQLite (160 before).
+
 ## 3.2.0 (ReForgeDB, November 2026)
 
 A cooldown-expiry event, SQLite backups, and export/import for every database, adapted from ideas in [QuorielDB](https://github.com/quoriel/db) (hold timers, backups) and built differently. Nothing to migrate; without the new event nothing runs that did not run before.
