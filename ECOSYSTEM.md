@@ -61,7 +61,7 @@ Each extension's CI tests the pairs that interact: ReForgeGiveaways runs every t
 
 **CI**
 - Node.js 22 and 24, and the oldest ForgeScript the peer range allows (2.5.0 for `>=2.5.0`; 2.0.0 for ReForgeCanvas's `^2`).
-- Every database the extension supports, and every pair with another extension that it interacts with. Where that is not done yet, the README says which databases are untested (ReForgeGiveaways: MySQL, MariaDB and MongoDB).
+- Every database the extension supports, and every pair with another extension that it interacts with. Where that is not done yet, the README says which databases are untested. ReForgeDB and ReForgeGiveaways (since 2.3.2) run on SQLite, PostgreSQL, MySQL, MariaDB and MongoDB; the test harness closes every database connection when a file finishes, because MySQL and MongoDB pools otherwise keep the process alive, and server database jobs have a `timeout-minutes`.
 - `dist/` and `metadata/` are committed (the packages install from GitHub), and CI fails when they are stale.
 
 **Releases and docs**
@@ -74,8 +74,8 @@ Each extension's CI tests the pairs that interact: ReForgeGiveaways runs every t
 | | Naming | Logging | Either database | Node 22/24 + ForgeScript 2.5 CI | Pair CI | Release from tag |
 |---|---|---|---|---|---|---|
 | ReForgeDB 3.3.0 | ✅ | ✅ | (is the database) | ✅ | n/a | ✅ |
-| ReForgeGiveaways 2.3.0 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| ReForgeTopGG 3.2.0 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| ReForgeCanvas 2.0.0 | ✅ | ✅ | n/a (stores no data) | ✅ | n/a | ✅ |
+| ReForgeGiveaways 2.3.2 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| ReForgeTopGG 3.3.0 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| ReForgeCanvas 2.0.1 | ✅ | ✅ | n/a (stores no data) | ✅ | n/a | ✅ |
 
 All four keep `engines: node >=18.17` although CI tests 22 and newer (ForgeScript 2.8 itself needs Node.js 22): raising it would change what users can install.
